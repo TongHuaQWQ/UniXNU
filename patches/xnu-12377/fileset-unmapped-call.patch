@@ -1,7 +1,7 @@
 diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
 --- a/osfmk/kern/debug.c
 +++ b/osfmk/kern/debug.c
-@@ -2577,3 +2577,15 @@ debug_fatal_panic_begin(void)
+@@ -2577,3 +2577,25 @@ debug_fatal_panic_begin(void)
  	return true;
  }
  #endif /* __arm64__ */
@@ -9,11 +9,21 @@ diff --git a/osfmk/kern/debug.c b/osfmk/kern/debug.c
 +/*
 + * Target of original kext calls into kernel functions this kernel does not have (fileset emission
 + * redirects them here). The return address is the call site in the original component.
++ *
++ * __builtin_ptrauth_strip needs a target that enables pointer authentication; xnu-12377's arm64 4K
++ * baseline is ARCH_CONFIGS=ARM64, not arm64e, and the first build of this patch stopped on
++ * "this target does not support pointer authentication". __has_feature(ptrauth_calls) is the
++ * guard the tree itself uses; the plain cast is exact on arm64 and arm64e keeps the strip.
 + */
 +__attribute__((noinline, noreturn, used))
 +void
 +unixnu_fileset_unmapped(uint64_t arg0, uint64_t arg1)
 +{
++	void *return_address = __builtin_return_address(0);
++#if __has_feature(ptrauth_calls)
++	/* arm64e signs return addresses; strip so the panic prints the call site. */
++	return_address = __builtin_ptrauth_strip(return_address, 0);
++#endif
 +	panic("fileset: original component called an unmapped kernel function from %p (x0 0x%llx x1 0x%llx)",
-+	    __builtin_ptrauth_strip(__builtin_return_address(0), 0), arg0, arg1);
++    return_address, arg0, arg1);
 +}

@@ -9,6 +9,7 @@ import hashlib
 import json
 import shutil
 import struct
+import subprocess
 import tempfile
 import zlib
 from pathlib import Path
@@ -48,7 +49,14 @@ def patch_dtb(dtb, nodes, scratch):
     work = scratch / 'device.dtb'
     work.write_bytes(dtb)
     for node in nodes:
-        run([fdtput, '-c', work, node['path']], capture=True)
+        # fdtput -c refuses a node that already exists (FDT_ERR_EXISTS), and a base tree can carry one:
+        # the vendor DTB of this device ships /chosen, while the board's [[bootimg.dtb_node]] list asks
+        # for /chosen because the runtime-merged tree it usually patches does not have it. Create only
+        # what is missing; the property writes below update an existing node.
+        existing = subprocess.run([fdtget, '-l', str(work), node['path']],
+                                  capture_output=True).returncode == 0
+        if not existing:
+            run([fdtput, '-c', work, node['path']], capture=True)
         for prop in node.get('props', []):
             values = prop['value'] if isinstance(prop['value'], list) else [prop['value']]
             run([fdtput, '-t', prop.get('type', 's'), work, node['path'], prop['name'], *[str(v) for v in values]], capture=True)

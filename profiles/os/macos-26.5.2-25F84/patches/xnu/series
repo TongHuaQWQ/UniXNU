@@ -1,0 +1,6 @@
+# macOS patch paths for xnu-12377.121.6, one per line in application order.
+#
+# Empty on purpose: the arch series (profiles/arch/arm64) already carries the shared Darwin-25
+# patches, zzz-boot-progress.patch included — repeating it here makes git apply fail on a second
+# application (bsd/kern/bsd_init.c). Add macOS-specific patches here only when a build or a boot log
+# forces one, and check first that the arch series does not already contain it.

@@ -15,6 +15,19 @@ AVAILABILITY_TAG=${UNIXNU_AVAILABILITYVERSIONS_TAG:-AvailabilityVersions-141.1}
 # The architecture and OS profiles select the kernel slice and the deployment target.
 XNU_ARCH_STRING=${UNIXNU_XNU_ARCH:-arm64}
 IOS_VERSION=${UNIXNU_IOS_VERSION:-17.0}
+
+# The guest OS decides the deployment target. iOS is the default; a macOS profile sets
+# XNU_DEPLOYMENT_OS=macos and XNU_DEPLOYMENT_VERSION, because XNU_TARGET_OS_* selects which
+# kext families and syscall surfaces the kernel is built with.
+DEPLOY_OS=${XNU_DEPLOYMENT_OS:-ios}
+DEPLOY_VERSION=${XNU_DEPLOYMENT_VERSION:-${IOS_VERSION}}
+if [ "$DEPLOY_OS" = macos ]; then
+  DEPLOY_TARGET_FLAGS="-mmacosx-version-min=$DEPLOY_VERSION -DXNU_TARGET_OS_OSX"
+  DEPLOY_LINKER_FLAGS="-Wl,-macosx_version_min,$DEPLOY_VERSION"
+else
+  DEPLOY_TARGET_FLAGS="-miphoneos-version-min=$DEPLOY_VERSION -DXNU_TARGET_OS_IOS"
+  DEPLOY_LINKER_FLAGS="-Wl,-ios_version_min,$DEPLOY_VERSION"
+fi
 if [ ! -d refer/xnu/.git ]; then
   git clone --depth 1 --branch "$XNU_TAG" https://github.com/apple-oss-distributions/xnu.git refer/xnu
 fi
@@ -821,8 +834,8 @@ make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iph
   MACHINE_CONFIGS=BCM2837 KERNEL_CONFIGS=DEVELOPMENT \
   ARCH_STRING_FOR_CURRENT_MACHINE_CONFIG="$XNU_ARCH_STRING" LARGE_MEMORY_DEFINE=-UARM_LARGE_MEMORY \
   ARM64_LINK_ADDR=0xfffffff007004000 ARM64_PLKSEG_ADDR=0xfffffff004004000 \
-  DEPLOYMENT_TARGET_FLAGS="-miphoneos-version-min=$IOS_VERSION -DXNU_TARGET_OS_IOS" \
-  DEPLOYMENT_LINKER_FLAGS="-Wl,-ios_version_min,$IOS_VERSION" \
+  DEPLOYMENT_TARGET_FLAGS="$DEPLOY_TARGET_FLAGS" \
+  DEPLOYMENT_LINKER_FLAGS="$DEPLOY_LINKER_FLAGS" \
   RC_DARWIN_KERNEL_VERSION="$XNU_DARWIN" RC_ProjectSourceVersion="$XNU_VERSION" \
   BUILD_LTO=0 BOUND_CHECKS=0 BUILD_WERROR="${XNU_BUILD_WERROR:-0}" MAKEJOBS=-j"${JOBS:-4}" \
   CFLAGS_EXTRA="$EXTRA_CFLAGS" "${EXTRA_MAKE_ARGS[@]}" ${XNU_HOST_MAKE_ARGS[@]+"${XNU_HOST_MAKE_ARGS[@]}"} \

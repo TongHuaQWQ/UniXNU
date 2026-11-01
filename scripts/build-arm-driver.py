@@ -2,6 +2,7 @@
 """Compile the generic platform expert against the actual source-kernel ABI."""
 import argparse
 import json
+import os
 import tomllib
 from pathlib import Path
 import subprocess
@@ -25,7 +26,19 @@ identifier = aliases.get(args.component, args.component)
 if identifier == 'ShengUfs' and ARCH == 'arm64e':
     if any((args.negative_aes_kat, args.verified_root, args.verified_root_bundle, args.negative_verified_block)):
         parser.error('The source UFS runtime always uses the authenticated policy bundle of the OS profile')
-    raise SystemExit(subprocess.call([sys.executable, ROOT / 'scripts/build-sheng-source-storage.py', '--tree', ROOT]))
+    # The arm64e source runtime authenticates every read against the OS profile's signed root policy:
+    # build-sheng-source-storage.py wants scripts/policies/*<build> (OS/, SystemOS/, verification.json) or
+    # a prepared build/verified-root-<build>, and refuses to run without one — the policy is derived from
+    # the IPSW's system volumes, which is the root-trust milestone rather than the prelink one. Until that
+    # exists here, fall through to the classic compile so the kernel still carries a block driver and the
+    # link keeps its shape; the alternative would be no storage driver at all.
+    build = os.environ.get('UNIXNU_IPSW_BUILD', '')
+    shipped = sorted((ROOT / 'scripts/policies').glob(f'*{build}')) if build else []
+    prepared = build and (ROOT / f'build/verified-root-{build}').is_dir()
+    if shipped or prepared:
+        raise SystemExit(subprocess.call([sys.executable, ROOT / 'scripts/build-sheng-source-storage.py', '--tree', ROOT]))
+    print(f'ShengUfs: no signed root policy for {build or "this profile"}; '
+          f'building the classic driver instead of the authenticated source runtime')
 metadata = catalog.get(identifier, {})
 runtime = metadata.get('legacy_name', identifier)
 args.component = runtime

@@ -32,9 +32,13 @@
 # Keep the 4 KiB machine configuration: BCM2837 is the layout UniXNU patches XNU into,
 # whatever the OS is (docs/xnu/four-k-page-tables.md).
 "kernel" = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
-"kernelcache_sha256" = "c4de7d65a016ff68f6ac2a335517da82c9be966175c80afd8a738dd00faa1c61"
+# kernelcache.release.mac17g of this restore image, decompressed arm64 slice (120,930,304 B). Measured,
+# not inherited: the value this profile used to carry (c4de7d65…) is not the kernelcache of any
+# identity in this IPSW that matches Mac17,2. The device repository pins the same digest; the board
+# wins on merge, so a port that changes identity has to change it in exactly one place.
+"kernelcache_sha256" = "697e01d6f9173f88ced3b00c7d711f5fdf37a1222e2baa50a8950f67a4ed11d5"
 "slide" = "-0x1000000"
-# TODO: the AMFI policy wrapper inside kernelcache.release.mac17p. Same-train reference:
+# TODO: the AMFI policy wrapper inside kernelcache.release.mac17g. Same-train reference:
 #   ipados-26.5.2-23F84 uses com.apple.driver.AppleMobileFileIntegrity=0xfffffe0008f13c80
 #   for ITS kernelcache; the address must come from this one. Find the AMFI kext in
 #   __PRELINK_INFO, then the function that calls _initializeAppleMobileFileIntegrity and

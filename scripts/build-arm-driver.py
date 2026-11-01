@@ -121,7 +121,13 @@ if component == 'NativeAdreno':
 result = subprocess.run(command, cwd=record['directory'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 (out / 'compile.log').write_text(result.stdout)
 if result.returncode:
-    raise SystemExit(result.stdout[-3500:])
+    # clang prints diagnostics in source order, and the last 3500 characters of a noisy compile are
+    # warnings: the errors themselves were being truncated away, which made this failure mode
+    # undiagnosable from CI logs ("12 warnings and 5 errors generated" and no error line in sight).
+    errors = [line for line in result.stdout.splitlines()
+              if ' error:' in line or line.startswith('error:') or 'fatal error:' in line]
+    note = f' ({len(errors)} error line(s), full output in {out.name}/compile.log)'
+    raise SystemExit('\n'.join(errors[:40]) + note if errors else result.stdout[-3500:])
 check_object(destination.read_bytes(), component)
 archive = out / ('lib' + identifier + '.a')
 archive.unlink(missing_ok=True)

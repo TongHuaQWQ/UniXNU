@@ -9,8 +9,13 @@ import struct
 ARCH = os.environ.get('UNIXNU_XNU_ARCH', 'arm64')
 IOS_VERSION = os.environ.get('UNIXNU_IOS_VERSION', '17.0')
 TRIPLE = f'{ARCH}-apple-ios{IOS_VERSION}'
-_major, _minor = (IOS_VERSION.split('.') + ['0'])[:2]
-DEPLOYMENT = (2, int(_major) << 16 | int(_minor) << 8)
+# LC_BUILD_VERSION packs minos as major<<16 | minor<<8 | patch, and clang records all three from the
+# -target triple (-target arm64e-apple-ios26.5.2 gives 26.5.2). Dropping the patch component made every
+# object of a profile whose ios_version is not x.y.0 look wrong: uke-storage's archives were built at
+# 26.5.2 and the check expected 26.5.0 — "deployment (2, 1705218), expected (2, 1705216)".
+_parts = (IOS_VERSION.split('.') + ['0', '0'])[:3]
+_major, _minor, _patch = (int(part) for part in _parts)
+DEPLOYMENT = (2, _major << 16 | _minor << 8 | _patch)
 _SUBTYPES = {'arm64': 0, 'arm64e': 2}
 if ARCH not in _SUBTYPES:
     raise SystemExit(f'Unsupported kernel architecture {ARCH}')

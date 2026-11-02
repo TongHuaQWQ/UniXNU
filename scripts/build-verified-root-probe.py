@@ -7,6 +7,7 @@ from pathlib import Path
 import struct
 import subprocess
 import uuid
+from kernel_target import native_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
@@ -123,7 +124,7 @@ objects = []
 for source in (ROOT / 'kits/VerifiedRoot/src/verified_root.c', ROOT / 'kits/VerifiedRoot/adapters/xnu_crypto.c',
                ROOT / 'scripts/qemu-entry/verified-root-probe.c'):
     destination = out / (source.stem + '.o')
-    compile_args, command, index = record['arguments'], [], 0
+    compile_args, command, index = native_arguments(record['arguments']), [], 0
     while index < len(compile_args):
         value = compile_args[index]
         if value == record['file']:

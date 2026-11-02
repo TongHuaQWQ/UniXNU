@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
-from kernel_target import TRIPLE, check_object
+from kernel_target import TRIPLE, check_object, native_arguments
 from xnu_symbols import kernel_names
 SOURCE = ROOT / 'refer/libpthread'
 # The OS profile pins the source; without it, the Darwin 23 revision.
@@ -38,7 +38,7 @@ sdk = subprocess.check_output(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'],
 def compile_one(source, destination, namespace=None):
     if source.name == 'source_pthread_bootstrap.c':
         command = []
-        arguments = record['arguments']
+        arguments = native_arguments(record['arguments'])
         index = 0
         while index < len(arguments):
             value = arguments[index]

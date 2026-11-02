@@ -24,7 +24,7 @@ def macho(data):
         data = data[:8] + bytes(4) + data[12:]
     return ordinary_macho(data)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from kernel_target import ARCH, IOS_VERSION, TRIPLE
+from kernel_target import ARCH, IOS_VERSION, TRIPLE, native_arguments
 
 
 def run(cmd, **kw):
@@ -60,7 +60,7 @@ if plan['operational_overrides'] or plan['instance_bytes'] != 136 or plan['virtu
 record = json.loads((ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
 source = ROOT / 'drivers/Adreno740/NativeAdrenoAccelerator.cpp'
 obj = OUT / 'NativeAdrenoAccelerator.o'
-cmd, i, args = [], 0, record['arguments']
+cmd, i, args = [], 0, native_arguments(record['arguments'])
 while i < len(args):
     v = args[i]
     if v == record['file']:

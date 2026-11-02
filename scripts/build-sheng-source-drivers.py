@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import tomllib
 
+from kernel_target import native_arguments  # same directory; the tree runs this from scripts/
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -29,8 +31,11 @@ def load_helper(name, path):
     return module
 
 
+
 def compile_command(record, source, output, includes, extra):
-    arguments = record['arguments']
+    # The kernel's recorded flags carry -flto once XNU_BUILD_LTO=1; strip them so this object stays a
+    # native arm64e Mach-O (check_object audits it, and ld links native objects beside LTO ones).
+    arguments = native_arguments(record['arguments'])
     command = [arguments[0], *includes]
     index = 1
     replaced = False

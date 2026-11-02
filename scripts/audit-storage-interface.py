@@ -12,6 +12,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'kits/XnuPrelink'))
 import native_prelink as np
+from kernel_target import native_arguments
 source = ROOT / 'refer/IOStorageFamily'
 revision = subprocess.check_output(['git', '-C', source, 'rev-parse', 'HEAD'], text=True).strip()
 if revision != 'e45fbe30a7879e0b16e26dddb78538f1b00e0bff':
@@ -28,7 +29,7 @@ conditions = sdk / 'usr/include/TargetConditionals.h'
 shutil.copyfile(conditions, out / 'include/TargetConditionals.h')
 record = json.loads((ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
 obj_path = out / 'IOBlockStorageDevice-reference.o'
-arguments = record['arguments']
+arguments = native_arguments(record['arguments'])
 command, index = [], 0
 while index < len(arguments):
     value = arguments[index]

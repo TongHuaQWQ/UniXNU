@@ -9,7 +9,10 @@
 	url = https://github.com/UniXNU/ArmVirtPlatform.git
 [submodule "drivers/DarwinBoot"]
 	path = drivers/DarwinBoot
-	url = https://github.com/UniXNU/DarwinBoot.git
+	# Fork: a prelinked macOS kernel is a kernel collection larger than the vendor_boot partition, so
+	# the loader reads "<kernel>.lzma" and accepts collection-sized images (ReadKernel + Lzma/).
+	# Upstream UniXNU/DarwinBoot has neither; docs/11 §28 and §29 record why.
+	url = https://github.com/TongHuaQWQ/DarwinBoot.git
 [submodule "drivers/SoftwareAES"]
 	path = drivers/SoftwareAES
 	url = https://github.com/UniXNU/SoftwareAES.git

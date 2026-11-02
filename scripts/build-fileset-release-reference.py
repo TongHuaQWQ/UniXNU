@@ -72,6 +72,12 @@ args = ['make','-C',str(source),'build','SDKROOT=iphoneos',
 with (output/f'{mode}-build.log').open('w') as log:
     result = subprocess.run(args,cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
 print('RELEASE reference exit',result.returncode,'log',output/f'{mode}-build.log',flush=True)
+if result.returncode and not (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/link.filelist').is_file():
+    # Nothing was linked, so the forced-export trimming below has no object list to read. Report why:
+    # a first LTO attempt died here and the only evidence was a FileNotFoundError.
+    lines = (output / f'{mode}-build.log').read_text().splitlines()
+    tail = [line for line in lines if ' error:' in line or line.lower().startswith(('error', 'ld: ', 'clang'))][-25:] or lines[-25:]
+    raise SystemExit(f'{mode} build failed before linking; last lines of {output / f"{mode}-build.log"}:' + chr(10) + chr(10).join(tail))
 # The bring-up patch calls native hooks from the kernel core behind weak_import declarations; on arm64e
 # the authenticated pointer of an undefined weak symbol fails the link. The private copy stubs them: this
 # comparison kernel never runs, the prelink step reads its layout.

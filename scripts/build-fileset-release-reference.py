@@ -55,6 +55,7 @@ args = ['make','-C',str(source),'build','SDKROOT=iphoneos',
     f'RC_DARWIN_KERNEL_VERSION={os.environ.get("UNIXNU_XNU_DARWIN", "25.5.0")}',
     f'RC_ProjectSourceVersion={os.environ.get("UNIXNU_XNU_VERSION", "12377.121.6")}',
     f'BUILD_LTO={int(options.lto)}','BOUND_CHECKS=0','BUILD_WERROR=0','MAKEJOBS=-j8',
+
     # This comparison kernel never runs: emit_prelink.py reads its code and symbol table. Keep it on the
     # standalone link path (ld-classic + threaded starts) that is known to link here, instead of
     # inheriting XNU_KERNEL_CHAINED_FIXUPS from the caller: that switch is for the kernel that goes
@@ -65,7 +66,14 @@ args = ['make','-C',str(source),'build','SDKROOT=iphoneos',
     f'CFLAGS_EXTRA={flags}',
     'copyio.o_CFLAGS_ADD=-march=armv8.1-a','pcb.o_CFLAGS_ADD=-march=armv8.1-a',
     'LD_KERNEL_ARCHIVES='+' '.join([f'-L{sdk}/usr/local/lib/kernel','-lfirehose_kernel',
-                                    *map(str,archives),*(f'-Wl,-force_load,{p}' for p in forced)]),
+                                    *map(str,archives),*(f'-Wl,-force_load,{p}' for p in forced),
+                                    # This kernel is compared against, never executed: its code and
+                                    # symbol names are what the matcher reads. A RELEASE build of our
+                                    # own cannot satisfy every forced export of the real kernel (the
+                                    # snapshot path trims them and relinks); under LTO that first failure
+                                    # happens before the object list exists, so let the link finish with
+                                    # those symbols undefined instead of dying with "symbol(s) not found".
+                                    *(['-Wl,-undefined,dynamic_lookup'] if options.lto else [])]),
     'XNU_EXTERNAL_KERNEL_ARCHIVES='+' '.join(map(str,archives+forced)),
     f'OBJROOT={output}/{mode}-obj',f'SYMROOT={output}/{mode}-sym',f'DSTROOT={output}/{mode}-dst']
 (output/f'{mode}-command.json').write_text(json.dumps(args,indent=2)+'\n')
@@ -74,10 +82,17 @@ with (output/f'{mode}-build.log').open('w') as log:
 print('RELEASE reference exit',result.returncode,'log',output/f'{mode}-build.log',flush=True)
 if result.returncode and not (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/link.filelist').is_file():
     # Nothing was linked, so the forced-export trimming below has no object list to read. Report why:
-    # a first LTO attempt died here and the only evidence was a FileNotFoundError.
-    lines = (output / f'{mode}-build.log').read_text().splitlines()
-    tail = [line for line in lines if ' error:' in line or line.lower().startswith(('error', 'ld: ', 'clang'))][-25:] or lines[-25:]
-    raise SystemExit(f'{mode} build failed before linking; last lines of {output / f"{mode}-build.log"}:' + chr(10) + chr(10).join(tail))
+    # a first LTO attempt died here and the only evidence was a FileNotFoundError, and a second one
+    # printed linker warnings but dropped the "Undefined symbols" block the report was about.
+    text = (output / f'{mode}-build.log').read_text().splitlines()
+    interesting = []
+    for index, line in enumerate(text):
+        if 'Undefined symbols' in line or line.lstrip().startswith('"') and index + 1 < len(text) and 'referenced from' in text[index + 1]:
+            interesting.extend(text[index:index + 40])
+        elif ' error:' in line or line.startswith(('ld: ', 'clang: error', 'clang++: error')):
+            interesting.append(line)
+    tail = interesting[-60:] or text[-40:]
+    raise SystemExit(f'{mode} build failed before linking; from {output / f"{mode}-build.log"}:' + chr(10) + chr(10).join(tail))
 # The bring-up patch calls native hooks from the kernel core behind weak_import declarations; on arm64e
 # the authenticated pointer of an undefined weak symbol fails the link. The private copy stubs them: this
 # comparison kernel never runs, the prelink step reads its layout.

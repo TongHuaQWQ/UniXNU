@@ -342,8 +342,11 @@ repository_id = 1426851690
 kind = "kit"
 function = "XNU kernelcache prelink and ABI inspection"
 scope = "tool"
-repository = "https://github.com/UniXNU/XnuPrelink.git"
-revision = "b74ed7c74a07f0eb5f81089c660905ecc4cabb7f"
+# Fork: macOS 26 ships no KDK, so pairing a rebuilt kernel with the original kernelcache needs
+# hand-reviewed identities per kernelcache build and a record of which call site wanted which unnamed
+# kernel function. docs/11 §42. Nothing else about this component changes.
+repository = "https://github.com/TongHuaQWQ/XnuPrelink.git"
+revision = "96ee60187217d68f2407251b26a0a95d3e50b79f"
 path = "kits/XnuPrelink"
 hardware = []
 os_abi = []

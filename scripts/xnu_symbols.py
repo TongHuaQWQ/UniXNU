@@ -1,4 +1,5 @@
 """Symbol names of the XNU kernel of a build tree, for the archives that must not collide with it."""
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -6,11 +7,16 @@ OBJ = 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837'
 
 
 def defined_names(paths, global_only):
-    """Defined symbol names of Mach-O files and archives."""
+    """Defined symbol names of Mach-O files, archives, or LLVM bitcode objects."""
+    # With XNU_BUILD_LTO=1 the objects named in link.filelist are LLVM bitcode: cctools' nm cannot read
+    # those, llvm-nm reads both. kernel_names() prefers the linked checkpoint kernel, so this only
+    # matters when that checkpoint is absent.
+    llvm_nm = shutil.which('llvm-nm')
+    tool = [llvm_nm] if llvm_nm else ['xcrun', 'nm']
     names = set()
     paths = [str(path) for path in paths]
     for start in range(0, len(paths), 200):
-        command = ['xcrun', 'nm', *(['-g'] if global_only else []), '-U', '-j', *paths[start:start + 200]]
+        command = [*tool, *(['-g'] if global_only else []), '-U', '-j', *paths[start:start + 200]]
         names |= {line.strip() for line in subprocess.check_output(command, text=True).splitlines() if line.startswith('_')}
     return names
 

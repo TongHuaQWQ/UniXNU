@@ -80,7 +80,8 @@ args = ['make','-C',str(source),'build','SDKROOT=iphoneos',
 with (output/f'{mode}-build.log').open('w') as log:
     result = subprocess.run(args,cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
 print('RELEASE reference exit',result.returncode,'log',output/f'{mode}-build.log',flush=True)
-if result.returncode and not (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/link.filelist').is_file():
+if result.returncode and not (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/link.filelist').is_file() \
+        and not (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/mach.release.bcm2837.unstripped').is_file():
     # Nothing was linked, so the forced-export trimming below has no object list to read. Report why:
     # a first LTO attempt died here and the only evidence was a FileNotFoundError, and a second one
     # printed linker warnings but dropped the "Undefined symbols" block the report was about.
@@ -108,11 +109,30 @@ if stub_names:
 # Forced exports the built objects cannot provide: remove them from this private copy and link again
 # (the symbols are absent from the comparison kernel either way; the first link can stop exactly there,
 # and its file list is what names the objects that were built).
-objects = (output / f'{mode}-obj/RELEASE_ARM64_BCM2837/link.filelist').read_text().splitlines()
-names = set()
-for i in range(0, len(objects), 100):
-    listed = subprocess.run(['xcrun', 'nm', '-gUj', *objects[i:i + 100]], capture_output=True, text=True, check=True)
-    names.update(symbol for symbol in listed.stdout.splitlines() if symbol.startswith('_') and ' ' not in symbol)
+target = output / f'{mode}-obj/RELEASE_ARM64_BCM2837'
+def defined_names(paths):
+    found = set()
+    for i in range(0, len(paths), 100):
+        listed = subprocess.run(['xcrun', 'nm', '-gUj', *paths[i:i + 100]], capture_output=True, text=True, check=True)
+        found.update(symbol for symbol in listed.stdout.splitlines() if symbol.startswith('_') and ' ' not in symbol)
+    return found
+if (target / 'link.filelist').is_file():
+    objects = (target / 'link.filelist').read_text().splitlines()
+    names = defined_names([entry for entry in objects if entry])
+else:
+    # build/BUILD_LTO=1 links through the pre-LTO path, which splits the objects into ltolink/nonltolink.filelist
+    # and merges the bitcode into justlto.o instead of writing link.filelist. The linked kernel is built from
+    # exactly those objects, so its own defined names are the same set that link.filelist would have named.
+    linked = target / 'mach.release.bcm2837.unstripped'
+    if not linked.is_file():
+        raise SystemExit(f'{mode} build linked nothing: no {target/"link.filelist"} and no {linked}')
+    names = defined_names([str(linked)])
+    # -Wl,-undefined,dynamic_lookup lets this comparison kernel keep the bring-up hooks unresolved. It is read,
+    # never run; record what stayed undefined so a later round does not have to guess.
+    unresolved = subprocess.run(['xcrun', 'nm', '-uj', str(linked)], capture_output=True, text=True, check=True)
+    names_undefined = sorted({line.strip() for line in unresolved.stdout.splitlines() if line.startswith('_')})
+    (output / 'undefined-symbols.json').write_text(json.dumps(names_undefined, indent=2) + '\n')
+    print(f'{mode} reference leaves {len(names_undefined)} undefined: {", ".join(names_undefined[:12])}')
 removed = []
 for filename in ('Private.exports', 'Private.arm64.exports'):
     path = output / 'source/config' / filename

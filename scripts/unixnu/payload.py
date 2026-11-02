@@ -10,9 +10,11 @@ The volume is written with mtools, without mounting, so it is the same on every 
 """
 import hashlib
 import json
+import lzma
 import os
 import re
 import shutil
+import struct
 import tempfile
 from pathlib import Path
 
@@ -245,12 +247,31 @@ def build(ctx, kernel=None):
     (stage / 'EFI/UniXNU/unixnu.toml').write_text(config)
     for path in [stage, *stage.rglob('*')]:
         os.utime(path, (EPOCH, EPOCH))
+    # [payload] compress_kernel: the kernel travels as "<path>.lzma" instead of the raw Mach-O.
+    # A prelinked macOS kernel is a kernel collection as large as the original kernelcache (132.8 MiB
+    # for 25F84) while vendor_boot_a is 96 MiB; LZMA takes it to 22.8 MiB. DarwinBoot reads the plain
+    # file first and falls back to the compressed one, so a boot-test kernel keeps working unchanged.
+    compressed = None
+    if spec.get('compress_kernel'):
+        raw = (payloads / 'kernel.macho').read_bytes()
+        blob = bytearray(lzma.compress(raw, format=lzma.FORMAT_ALONE, preset=int(spec.get('compress_preset', 6))))
+        # FORMAT_ALONE streams and therefore records 0xff..ff as the size; the loader needs the real
+        # one in the 8 bytes after the 5 property bytes (same contract as EDK2's UEFI LZMA container).
+        blob[5:13] = struct.pack('<Q', len(raw))
+        (payloads / 'kernel.macho.lzma').write_bytes(bytes(blob))
+        (payloads / 'kernel.macho').unlink()
+        compressed = payloads / 'kernel.macho.lzma'
+        log(f'payload: kernel.macho {len(raw)} -> kernel.macho.lzma {len(blob)} bytes')
+
     size = int(spec.get('size_mib', 192))
     content = sum(p.stat().st_size for p in stage.rglob('*') if p.is_file())
     if content > size * 1024 * 1024 * 0.95:
         raise Error(f'the payload files take {content >> 20} MiB; raise size_mib (now {size}) in board.toml [payload]')
     write_volume(stage, image, spec.get('volume', 'UNIXNU')[:11], size)
-    data_report = {'kernel_sha256': sha256_file(kernel), 'payload_kernel_sha256': sha256_file(payloads / 'kernel.macho'),
+    data_report = {'kernel_sha256': sha256_file(kernel),
+                   'payload_kernel_sha256': sha256_file(compressed or payloads / 'kernel.macho'),
+                   'payload_kernel_form': 'lzma' if compressed else 'macho',
+                   'payload_kernel_bytes': (compressed or payloads / 'kernel.macho').stat().st_size,
                    'adt_sha256': sha256_file(payloads / 'kernel.macho.adt'), 'kernel_args': line,
                    'trust_cache_sha256': sha256_file(trust) if trust else None, 'gpu_addon_sha256': sha256_file(addon) if addon else None,
                    'data_ramdisk_sha256': sha256_file(data) if data else None, 'skip_setup': bool(getattr(args, 'skip_setup', False)), 'panic_screen': bool(spec.get('panic_screen')),

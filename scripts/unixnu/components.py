@@ -85,12 +85,20 @@ def source_identity(ctx, module):
 
 
 def official_alias(ctx, module, spec):
+    """A compatibility name follows the source the catalog records for that component.
+
+    The catalog repository was the only thing checked here, and it had to live under github.com/unixnu/.
+    A fork cannot satisfy that even when the catalog itself names the fork, so a board that pins a fork
+    (docs/11 §42: macOS 26 has no KDK, and pairing needs hand-reviewed identities) lost the legacy
+    name its own scripts and board.toml still use. The rule is now the identity the catalog records,
+    and the unixnu/ spelling of a legacy name is still accepted for the official sources.
+    """
     repository = repository_identity(spec.get('repository', ''))
-    if not repository.startswith('github.com/unixnu/'):
+    if not repository:
         return False
     legacy = spec.get('legacy_name')
     allowed = {repository}
-    if legacy:
+    if legacy and repository.startswith('github.com/unixnu/'):
         allowed.add('github.com/unixnu/' + legacy.lower())
     return source_identity(ctx, module) in allowed
 

@@ -164,6 +164,15 @@ if [ "$(uname -s)" = Linux ]; then
 fi
 # The baseline builds the kernel; `all` also checks the Apple kext export ABI.
 EXTRA_MAKE_ARGS=()
+# Apple ships kernelcache.release.* as an LTO build. A fileset prelink pairs kext calls against this
+# kernel by comparing code, so a non-LTO reconstruction differs wherever Apple inlined: the pairing
+# statistics in the prelink report (functions matched, kext-facing targets named) are the metric to
+# watch when this is on. XNU_BUILD_LTO=1 mirrors what build-fileset-release-reference.py --lto does.
+BUILD_LTO_MODE=${XNU_BUILD_LTO:-0}
+if [ "$BUILD_LTO_MODE" != 0 ] && [ "$BUILD_LTO_MODE" != 1 ]; then
+  echo 'XNU_BUILD_LTO must be 0 or 1' >&2
+  exit 1
+fi
 # A fileset boot replaces com.apple.kernel inside a kernel collection: the
 # native executable must carry chained fixups and split-segment records.
 EXTRA_MAKE_ARGS+=("XNU_KERNEL_CHAINED_FIXUPS=${XNU_KERNEL_CHAINED_FIXUPS:-0}")
@@ -837,7 +846,8 @@ make -C .cache/xnu-work "${XNU_BUILD_TARGET:-build}" SDKROOT="${XNU_SDKROOT:-iph
   DEPLOYMENT_TARGET_FLAGS="$DEPLOY_TARGET_FLAGS" \
   DEPLOYMENT_LINKER_FLAGS="$DEPLOY_LINKER_FLAGS" \
   RC_DARWIN_KERNEL_VERSION="$XNU_DARWIN" RC_ProjectSourceVersion="$XNU_VERSION" \
-  BUILD_LTO=0 BOUND_CHECKS=0 BUILD_WERROR="${XNU_BUILD_WERROR:-0}" MAKEJOBS=-j"${JOBS:-4}" \
+  BUILD_LTO="$BUILD_LTO_MODE" BOUND_CHECKS=0 BUILD_WERROR="${XNU_BUILD_WERROR:-0}" MAKEJOBS=-j"${JOBS:-4}" \
+  LDFLAGS_KERNEL_LTO="-miphoneos-version-min=$IOS_VERSION -Wl,-mllvm,-inline-threshold=100" \
   CFLAGS_EXTRA="$EXTRA_CFLAGS" "${EXTRA_MAKE_ARGS[@]}" ${XNU_HOST_MAKE_ARGS[@]+"${XNU_HOST_MAKE_ARGS[@]}"} \
   OBJROOT="$ROOT/build/xnu/ios-obj" SYMROOT="$ROOT/build/xnu/ios-sym" DSTROOT="$ROOT/build/xnu/ios-dst"
 if [ "${XNU_SOURCE_CORECRYPTO14:-0}" = 1 ] && [ "$CRYPTO_BOOTSTRAP_MODE" = source ]; then

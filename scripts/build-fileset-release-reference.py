@@ -55,6 +55,12 @@ args = ['make','-C',str(source),'build','SDKROOT=iphoneos',
     f'RC_DARWIN_KERNEL_VERSION={os.environ.get("UNIXNU_XNU_DARWIN", "25.5.0")}',
     f'RC_ProjectSourceVersion={os.environ.get("UNIXNU_XNU_VERSION", "12377.121.6")}',
     f'BUILD_LTO={int(options.lto)}','BOUND_CHECKS=0','BUILD_WERROR=0','MAKEJOBS=-j8',
+    # This comparison kernel never runs: emit_prelink.py reads its code and symbol table. Keep it on the
+    # standalone link path (ld-classic + threaded starts) that is known to link here, instead of
+    # inheriting XNU_KERNEL_CHAINED_FIXUPS from the caller: that switch is for the kernel that goes
+    # into the collection, and it changes the linker (`-Wl,-add_split_seg_info -Wl,-kernel`) that this
+    # script's forced-export trimming was never exercised against.
+    'XNU_KERNEL_CHAINED_FIXUPS=0',
     'LDFLAGS_KERNEL_LTO=-miphoneos-version-min=26.0 -Wl,-mllvm,-inline-threshold=100',
     f'CFLAGS_EXTRA={flags}',
     'copyio.o_CFLAGS_ADD=-march=armv8.1-a','pcb.o_CFLAGS_ADD=-march=armv8.1-a',

@@ -22,6 +22,18 @@ if ARCH not in _SUBTYPES:
 SUBTYPE = _SUBTYPES[ARCH]
 
 
+# Flags that turn a compile into LLVM bitcode instead of a native object. The archive builders replay
+# the kernel's own compile records, and with XNU_BUILD_LTO=1 those records carry -flto: replaying them
+# verbatim produced bitcode, and check_object then rejected it ("ArmDTPlatform: not an arm64e object").
+# The archives must stay native -- ld links native objects beside the LTO kernel happily.
+BITCODE_FLAGS = ('-flto', '-fno-lto', '-emit-llvm', '-fembed-bitcode')
+
+
+def native_arguments(arguments):
+    """The recorded compile flags with the ones that would emit bitcode removed."""
+    return [value for value in arguments if not value.startswith(BITCODE_FLAGS)]
+
+
 def check_object(data, what):
     """Refuse a relocatable object whose architecture or deployment differs from the kernel target."""
     magic, cpu, subtype, kind, count = struct.unpack_from('<5I', data)

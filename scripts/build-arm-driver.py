@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from kernel_target import ARCH, TRIPLE, check_object
+from kernel_target import ARCH, TRIPLE, check_object, native_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser(description=__doc__)
@@ -80,7 +80,7 @@ if args.negative_aes_kat:
     source = out / 'NativeAES.cpp'
     source.write_text(text.replace(marker, '0x77,0x49,0xab,0xac'))
 destination = out / (component + '.o')
-arguments = record['arguments']
+arguments = native_arguments(record['arguments'])
 command = []
 index = 0
 while index < len(arguments):

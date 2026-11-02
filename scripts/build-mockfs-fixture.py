@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 
-from kernel_target import check_object
+from kernel_target import check_object, native_arguments
 
 ROOT = Path(__file__).resolve().parents[1]
 recipe = ROOT / 'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/bsd/DEVELOPMENT/vfs_conf.o.json'
@@ -15,7 +15,7 @@ objects = []
 for name in ('mockfs_fsnode', 'mockfs_vfsops', 'mockfs_vnops'):
     source = ROOT / '.cache/xnu-work/bsd/miscfs/mockfs' / (name + '.c')
     destination = out / (name + '.o')
-    arguments = record['arguments']
+    arguments = native_arguments(record['arguments'])
     command = []
     index = 0
     while index < len(arguments):

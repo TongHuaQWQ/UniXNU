@@ -352,7 +352,7 @@ scope = "tool"
 # kernel function. docs/11 §42. Nothing else about this component changes. Upstream's history for this
 # component is unrelated to the fork's (no common ancestor), so this stays the fork's kit.
 repository = "https://github.com/TongHuaQWQ/XnuPrelink.git"
-revision = "8aa068955aa245d6efcb665a7a470f8861d8209a"
+revision = "a7714579cb9f1243a74abe386dc18a5174da881e"
 path = "kits/XnuPrelink"
 hardware = []
 os_abi = []

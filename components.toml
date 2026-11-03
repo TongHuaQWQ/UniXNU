@@ -346,7 +346,7 @@ scope = "tool"
 # hand-reviewed identities per kernelcache build and a record of which call site wanted which unnamed
 # kernel function. docs/11 §42. Nothing else about this component changes.
 repository = "https://github.com/TongHuaQWQ/XnuPrelink.git"
-revision = "85daec4d4056ea9c72d7a50ebb33b6d65d439fdd"
+revision = "8aa068955aa245d6efcb665a7a470f8861d8209a"
 path = "kits/XnuPrelink"
 hardware = []
 os_abi = []

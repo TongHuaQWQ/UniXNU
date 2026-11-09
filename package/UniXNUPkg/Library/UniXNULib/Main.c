@@ -8,6 +8,7 @@
 #include "Internal.h"
 
 #include <Protocol/SerialIo.h>
+#include <UkeMemStatus.h>
 
 STATIC EFI_SERIAL_IO_PROTOCOL  *mSerial;
 
@@ -61,6 +62,7 @@ UniXNURun (
   BOOLEAN          Countdown;
   UNIXNU_ENTRY         *Entry;
   UNIXNU_ENTRY         BootCopy;
+  UKE_MEM_STATUS       *Mem;
 
   //
   // A boot manager waits for people; the 5 minute BDS watchdog does not.
@@ -108,15 +110,42 @@ UniXNURun (
 
   UniXNUUiInit (&Config, &Ui);
 
-  UnicodeSPrint (
-    Ui.Info,
-    sizeof (Ui.Info),
-    L"drivers %u loaded / %u failed    kits %u    acpi %u",
-    (UINT32)Stats.DriversLoaded,
-    (UINT32)Stats.DriversFailed,
-    (UINT32)Config.KitsLoaded,
-    (UINT32)Stats.AcpiInstalled
-    );
+  // A device memory driver may have published the DT/initrd result. Put it first: when the payload
+  // does not start, these numbers are the diagnosis (ported from the uke device fork).
+  Mem = NULL;
+  if (!EFI_ERROR (EfiGetSystemConfigurationTable (&gUkeMemStatusGuid, (VOID **)&Mem)) &&
+      (Mem != NULL) && (Mem->Magic == UKE_MEM_STATUS_MAGIC))
+  {
+    UnicodeSPrint (
+      Ui.Info,
+      sizeof (Ui.Info),
+      L"mem dt=%u ir=%u 0x%lx-0x%lx  drv %u/%u  kits %u  acpi %u",
+      Mem->DtbSource,
+      Mem->InitrdPublished,
+      Mem->InitrdStart,
+      Mem->InitrdEnd,
+      (UINT32)Stats.DriversLoaded,
+      (UINT32)Stats.DriversFailed,
+      (UINT32)Config.KitsLoaded,
+      (UINT32)Stats.AcpiInstalled
+      );
+
+    // The driver also publishes the first line of the previous XNU panic log; never touch that
+    // physical region from the application.
+    if (Mem->PanicLine[0] != '\0') {
+      UnicodeSPrint (Ui.Info, sizeof (Ui.Info), L"last panic: %a", Mem->PanicLine);
+    }
+  } else {
+    UnicodeSPrint (
+      Ui.Info,
+      sizeof (Ui.Info),
+      L"drivers %u loaded / %u failed    kits %u    acpi %u",
+      (UINT32)Stats.DriversLoaded,
+      (UINT32)Stats.DriversFailed,
+      (UINT32)Config.KitsLoaded,
+      (UINT32)Stats.AcpiInstalled
+      );
+  }
 
   Countdown = TRUE;
   for ( ; ;) {

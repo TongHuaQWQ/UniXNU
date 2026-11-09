@@ -116,6 +116,14 @@ def main():
         f'RC_DARWIN_KERNEL_VERSION={os.environ.get("UNIXNU_XNU_DARWIN", "25.5.0")}',
         f'RC_ProjectSourceVersion={os.environ.get("UNIXNU_XNU_VERSION", "12377.121.6")}',
         f'BUILD_LTO={int(options.lto)}','BOUND_CHECKS=0','BUILD_WERROR=0','MAKEJOBS=-j8',
+        # Do not inherit XNU_KERNEL_CHAINED_FIXUPS from the caller. That switch is for the kernel that
+        # goes into the collection, and it changes the linker to `-Wl,-add_split_seg_info -Wl,-kernel`;
+        # this comparison kernel must stay on the standalone link path the forced-export trimming and
+        # -undefined,dynamic_lookup below were exercised against. The device fork's version of this
+        # script pinned it to 0 for exactly this reason, the merge took upstream's version which left it
+        # inherited, and the device defconfig sets CONFIG_XNU_KERNEL_CHAINED_FIXUPS=y -- which is how the
+        # 2026-11-09 rounds got "exit 2" twice with 67 forced exports trimmed and no visible error.
+        'XNU_KERNEL_CHAINED_FIXUPS=0',
         f'LDFLAGS_KERNEL_LTO=-miphoneos-version-min={inputs["versions"]["UNIXNU_IOS_VERSION"]} -Wl,-mllvm,-inline-threshold=100',
         f'CFLAGS_EXTRA={flags}',
         'copyio.o_CFLAGS_ADD=-march=armv8.1-a','pcb.o_CFLAGS_ADD=-march=armv8.1-a',
@@ -136,6 +144,15 @@ def main():
     with (output/f'{mode}-build.log').open('w') as log:
         result = subprocess.run(args,cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT)
     print('RELEASE reference exit',result.returncode,'log',output/f'{mode}-build.log',flush=True)
+    if result.returncode:
+        # The build log lives in the output tree, which the CI artifact does not carry. Echo the part
+        # that says what went wrong, so a failing round explains itself in the step log.
+        tail = (output/f'{mode}-build.log').read_text(errors='replace').splitlines()
+        interesting = [line for line in tail
+                       if re.search(r'error:|Undefined symbols|symbol\(s\) not found|ld: |referenced from|^\s+"_', line)]
+        print('--- reference build errors ---', flush=True)
+        for line in (interesting or tail)[-40:]:
+            print(line, flush=True)
     # The bring-up patch calls native hooks from the kernel core behind weak_import declarations; on arm64e
     # the authenticated pointer of an undefined weak symbol fails the link. The private copy stubs them: this
     # comparison kernel never runs, the prelink step reads its layout.

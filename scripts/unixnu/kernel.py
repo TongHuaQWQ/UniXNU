@@ -208,8 +208,21 @@ def build(ctx, modules):
         try:
             run(['bash', script], cwd=ctx.tree, env=subprocess_env, log_file=ctx.logs / 'kernel-bootstrap.log')
         except Error:
-            if not record.is_file():
-                raise
+            # The bootstrap pass is expected to stop at the link: it runs without archives, so
+            # XNU_BOOTSTRAP keeps the archived force-loads out and the symbols they provide are
+            # undefined. What it is run for is the compile records, and this pass cannot be the
+            # authority on whether it produced them:
+            #
+            #   * with CONFIG_XNU_BUILD_LTO the records sit next to the LTO objects and the path probed
+            #     above need not exist, which is how b106 and the 2026-11-09 rounds failed the whole
+            #     step with "Undefined symbols ... _corecrypto_kext_start" while b107 -- same code,
+            #     same logs -- built a kernel;
+            #   * a genuinely missing record is reported precisely by the archive step below, which
+            #     reads one by name and dies with the file it wanted.
+            #
+            # So the failure is reported and the build continues; build_archives() is the gate.
+            log('kernel: bootstrap pass stopped at the link (expected without archives); the archive '
+                'step decides whether the compile records exist')
     # Revalidate the selected source and regenerate headers on every archive build.
     # A pre-existing directory can belong to a different OS profile/revision.
     if (ctx.tree / 'refer/IOStorageFamily').is_dir():

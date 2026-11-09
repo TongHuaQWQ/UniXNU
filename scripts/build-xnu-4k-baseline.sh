@@ -15,18 +15,30 @@ AVAILABILITY_TAG=${UNIXNU_AVAILABILITYVERSIONS_TAG:-AvailabilityVersions-141.1}
 # The architecture and OS profiles select the kernel slice and the deployment target.
 XNU_ARCH_STRING=${UNIXNU_XNU_ARCH:-arm64}
 IOS_VERSION=${UNIXNU_IOS_VERSION:-17.0}
+# The OS profile names the userspace the kernel serves: ios (default) or macosx. Both build the same
+# iOS-platform kernel with the same memory layout and link address; macosx defines XNU_TARGET_OS_OSX
+# instead of XNU_TARGET_OS_IOS, which gives IOKit classes the padded vtables and aligned containers
+# that macOS kexts are built against and turns on the macOS paths of the kernel.
+case "${UNIXNU_XNU_TARGET:-ios}" in
+  ios) XNU_TARGET_DEFINE=-DXNU_TARGET_OS_IOS ;;
+  macosx) XNU_TARGET_DEFINE=-DXNU_TARGET_OS_OSX ;;
+  *) echo 'UNIXNU_XNU_TARGET must be ios or macosx' >&2; exit 1 ;;
+esac
 
-# The guest OS decides the deployment target. iOS is the default; a macOS profile sets
-# XNU_DEPLOYMENT_OS=macos and XNU_DEPLOYMENT_VERSION, because XNU_TARGET_OS_* selects which
-# kext families and syscall surfaces the kernel is built with.
-DEPLOY_OS=${XNU_DEPLOYMENT_OS:-ios}
-DEPLOY_VERSION=${XNU_DEPLOYMENT_VERSION:-${IOS_VERSION}}
-if [ "$DEPLOY_OS" = macos ]; then
-  DEPLOY_TARGET_FLAGS="-mmacosx-version-min=$DEPLOY_VERSION -DXNU_TARGET_OS_OSX"
-  DEPLOY_LINKER_FLAGS="-Wl,-macosx_version_min,$DEPLOY_VERSION"
-else
-  DEPLOY_TARGET_FLAGS="-miphoneos-version-min=$DEPLOY_VERSION -DXNU_TARGET_OS_IOS"
-  DEPLOY_LINKER_FLAGS="-Wl,-ios_version_min,$DEPLOY_VERSION"
+# Merged from the device fork (mcOS): the deployment-target *version* is a separate axis that
+# XNU_TARGET_OS_* cannot express. Both variables are opt-in, so an unset environment reproduces the
+# upstream flags byte for byte; a macOS profile that pins XNU_DEPLOYMENT_VERSION=26.5.2 and
+# XNU_DEPLOYMENT_OS=macos gets -mmacosx-version-min instead of -miphoneos-version-min.
+DEPLOY_TARGET_FLAGS="-miphoneos-version-min=$IOS_VERSION $XNU_TARGET_DEFINE"
+DEPLOY_LINKER_FLAGS="-Wl,-ios_version_min,$IOS_VERSION"
+if [ -n "${XNU_DEPLOYMENT_VERSION:-}" ]; then
+  if [ "${XNU_DEPLOYMENT_OS:-ios}" = macos ]; then
+    DEPLOY_TARGET_FLAGS="-mmacosx-version-min=$XNU_DEPLOYMENT_VERSION $XNU_TARGET_DEFINE"
+    DEPLOY_LINKER_FLAGS="-Wl,-macosx_version_min,$XNU_DEPLOYMENT_VERSION"
+  else
+    DEPLOY_TARGET_FLAGS="-miphoneos-version-min=$XNU_DEPLOYMENT_VERSION $XNU_TARGET_DEFINE"
+    DEPLOY_LINKER_FLAGS="-Wl,-ios_version_min,$XNU_DEPLOYMENT_VERSION"
+  fi
 fi
 if [ ! -d refer/xnu/.git ]; then
   git clone --depth 1 --branch "$XNU_TAG" https://github.com/apple-oss-distributions/xnu.git refer/xnu

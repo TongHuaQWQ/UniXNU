@@ -26,7 +26,7 @@
 | [ShengAdsp.h](https://github.com/UniXNU/UniXNU-sheng/blob/516a780473a2ac59c8b438e132bb60204dda9e22/package/ShengAdsp.h#L15) | `ShengAdspClient`、通道注册和发送队列 |
 | [LegacyDisplayProbe.cpp](https://github.com/UniXNU/UniXNU-sheng/blob/516a780473a2ac59c8b438e132bb60204dda9e22/package/LegacyDisplayProbe.cpp#L493) | DSP 与消费者的初始化顺序 |
 
-sheng 文件提供 Qualcomm GLINK 集成参考。使用该接口时：
+链接的文件提供 Qualcomm GLINK 集成参考。使用该接口时：
 
 1. 按目标硬件适配固件认证、预留内存和电源投票。打开通道前，先建立邮箱和 ready/crash 通知路径。
 2. 实现 `ShengAdspClient` 的通道状态和接收回调。回调运行于 DSP 线程，应将收到的字节复制到
@@ -99,9 +99,9 @@ Linux 提供协议和流生命周期参考。使用选定 XNU 的接口实现其
    字节；周期不满是正常的。
 6. **发布输入。** 直接采集已知声音成功后，再发布输入流。
 
-sheng 的路由，见 [AudioProbe.cpp](https://github.com/UniXNU/UniXNU-sheng/blob/main/package/AudioProbe.cpp)：
+参考路由见 [AudioProbe.cpp](https://github.com/UniXNU/UniXNU-sheng/blob/main/package/AudioProbe.cpp)：
 
-| 阶段 | sheng 取值 |
+| 阶段 | 参考取值 |
 | --- | --- |
 | Codec | WCD938x，复位 gpio108，供电 ldob15，TX master（0x6d30000）上的 SoundWire 设备 1 |
 | 模拟 | AMIC3、micbias 3、ADC2 |
@@ -110,7 +110,7 @@ sheng 的路由，见 [AudioProbe.cpp](https://github.com/UniXNU/UniXNU-sheng/bl
 | 格式 | 单声道，48 kHz |
 | iOS | HAL 插件的输入端口；iOS 只在 Thunderbolt 传输类型下接受它 |
 
-用 `sheng-audio=4` 检查采集，它在启动时读取两秒：`[mic]` 和 `[mic capture]` 日志行
+用 `audio=4` 检查采集，它在启动时读取两秒：`[mic]` 和 `[mic capture]` 日志行
 给出返回的周期、字节数、非零样本比例和峰值。随后在应用中录音并读取 `[audio-io]`。
 
 ## 4. 实现电池状态上报 {#battery}
@@ -158,9 +158,9 @@ SM8550 上的调频输入：
 
 - CPU：每 16 ms 读取调度器记录的各 CPU 空闲时间。频域跟随其中最忙的 CPU，留 1.25 倍余量，连续四个较闲的窗口后才降频。
 - GPU：读取 GMU XO 忙碌计数器，按让 GPU 约一半时间忙碌的档位通过 HFI 投票，同时投该档位的带宽。
-- 触摸：收到触摸报告后，P 频域和 GPU 保持最高档，直到最后一次报告后 1 s（`sheng-cpufreq-boost-ms`、`sheng-gpu-dcvs-boost-ms`）。
+- 触摸：收到触摸报告后，P 频域和 GPU 保持最高档，直到最后一次报告后 1 s（`cpufreq-boost-ms`、`gpu-dcvs-boost-ms`）。
 - 帧：最近 4 个窗口中有 2 个有 GPU 提交时，所有 CPU 频域在 300 ms 内不低于各自最高档的 60%。GPU 从空闲降频后恢复工作时，50 ms 内以当前频率的两倍运行，至少 578 MHz。
-- fence 等待：等待者睡眠到 fence 中断为止，最长 1 ms（`sheng-gpu-pause-us`），不再轮询。
+- fence 等待：等待者睡眠到 fence 中断为止，最长 1 ms（`gpu-pause-us`），不再轮询。
 
 **结果：** 频率请求和电源转换产生可观察效果，并保持依赖设备正常运行。
 

@@ -36,6 +36,10 @@ kernel_args = ["-v", "serial=3", "debug=0x14e"]
 
 `status` 的 `build_config` 字段显示选中的文件。`unixnu.local.toml` 保存构建输入，设备仓库的 `local.toml` 保存组件源码覆盖路径。
 
+设备通过 `[payload.runtime] appsync = true` 和匹配的内核补丁启用
+[AppSync 适配层](/zh/concepts/security#用户应用安装)，对所有用户应用包生效，
+不需要逐个应用提供构建输入。
+
 ## 配置字段
 
 | 表 | 键 | 含义 |
@@ -45,13 +49,17 @@ kernel_args = ["-v", "serial=3", "debug=0x14e"]
 | `components` | `include` | 规范组件 ID，依赖按构建顺序解析 |
 | `kernel` | `config_fragments` | 有序的配置片段 |
 | `kernel` | `patch_series` | 有序的 series 文件 |
-| `device_tree` | `source` | DTS 入口，例如 `device:dts/sheng.dts` |
+| `device_tree` | `source` | DTS 入口，例如 `device:dts/myboard.dts` |
 | `device_tree` | `include_dirs` | DTS 包含路径，例如 `soc:dts` |
 
 配置层按 ARM64、SoC、OS、设备顺序应用。表按键合并，数组替换。
 所选 defconfig 在 `config_fragments` 之后应用。路径前缀为 `arch:`、`soc:`、`os:`
 和 `device:`。series 条目还支持 `component:<ID>/path`。
 `unixnu status --json` 显示最终配置。
+
+`board.toml` 的 `[os_overrides."<profile>"]` 保存只对一个 OS 配置不同的板级值。所选配置的表合并到
+板级值上，其他表丢弃。其中的 `remove` 数组列出点分键（例如 `payload.runtime.appsync`），在合并后删除。
+删除作用于合并后的配置层和板级值，所以会替换配置层列表的板级列表应放在使用它的配置的覆盖表中。
 
 ## board.toml
 
@@ -140,6 +148,7 @@ kernel_args = ["-v", "serial=3", "debug=0x14e"]
 | `tags_offset` | 整数 | tags 偏移 |
 | `pagesize` | 整数 | 镜像页大小 |
 | `header_version` | 整数 | Android 启动镜像 header 版本 |
+| `kernel_compression` | 字符串 | `gzip`（默认）或 `none`，决定内核在启动镜像中的存储方式 |
 
 ### [[bootimg.dtb_node]]
 
@@ -179,6 +188,22 @@ kernel_args = ["-v", "serial=3", "debug=0x14e"]
 | `packed_data_ramdisk` | 布尔 | 使用 packed Data 格式 |
 | `ipad_identity` | 布尔 | 写入 Apple 设备身份属性 |
 | `unique_chip_id` | 字符串 | 种子必需时写 `required` |
+
+### [payload.runtime]
+
+内核构建前准备的运行时输入。Data 种子的卷 UUID 写入 `CONFIG_XNU_OWNER_DATA_VOLUME_UUID`。
+
+| 键 | 类型 | 含义 |
+| --- | --- | --- |
+| `tool` | 字符串 | 构建树中的运行时构建脚本 |
+| `target` | 字符串 | 用户空间目标，例如 `ios27` 或 `macos27` |
+| `build` | 字符串 | 输入所核对的 OS build |
+| `data_gib` | 整数 | 新 Data 种子的大小 |
+| `skip_setup` | 布尔 | 在新 Data 种子中把 Setup 标记为完成 |
+| `data_seed_tool` | 字符串 | 以 root 运行的种子脚本。缺少种子时构建停止并打印要运行的命令 |
+| `gpu_addon` | 布尔 | 构建 GPU addon（默认 `true`）。为 `false` 时信任包只含原始缓存 |
+| `trust_components` | 数组 | 打包进 owner 信任缓存的 IPSW 信任缓存组件 |
+| `wallpapers`、`audio_tool`、`wifi_tool`、`bluetooth_tool`、`appsync` | | 加入 addon 的可选用户空间层 |
 
 ## defconfig
 

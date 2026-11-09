@@ -10,7 +10,7 @@ kernel mounts over the default wallpaper's layered animation; --wallpaper-floati
 wallpaper's floating layer (iPadOS 27). --prime-list adds FILE (the absolute paths of the OS image's .metallib
 files, one per line) as addons/NativeAdrenoMetal.primelist, the libraries the render server compiles ahead (PrimeShaders.h). The payload carries the file next to the kernel (unixnu build payload --gpu-addon), the loader
 hands it to the kernel as /chosen/memory-map/GpuAddon, and the kernel writes every file whose content or mode differs into the mounted
-Data volume before its addon mounts (sheng-gpu-addon=1). The Data seed then no longer changes with the plugin, so its persistent store
+Data volume before its addon mounts (gpu-addon=1). The Data seed then no longer changes with the plugin, so its persistent store
 (whose identity is the seed's content) survives a plugin rebuild. The kernel creates missing directories.
 
 The data of every file is zlib-compressed: the payload FAT (the boot image's ramdisk) has to stay at 192 MiB, which the tablet's boot
@@ -75,7 +75,8 @@ def main():
     output = Path(args[0]).resolve()
     if output.exists():
         sys.exit('Refuse to overwrite ' + str(output))
-    if not (BUNDLE / 'NativeAdrenoMetal').is_file():
+    # iOS keeps a flat bundle; macOS keeps the executable in Contents/MacOS. The addon carries either layout as built.
+    if not (BUNDLE / 'NativeAdrenoMetal').is_file() and not (BUNDLE / 'Contents/MacOS/NativeAdrenoMetal').is_file():
         sys.exit('Build the plugin first: python3 scripts/build-adreno-metal-plugin.py')
     files = []
     for path in sorted(p for p in BUNDLE.rglob('*') if p.is_file()):

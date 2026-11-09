@@ -62,8 +62,14 @@ id = "DarwinBoot"
 kind = "driver"
 function = "UEFI XNU loader"
 scope = "firmware"
-repository = "https://github.com/UniXNU/DarwinBoot.git"
-revision = "3c75734014cdab0acd9541e88057b7606ee7ae08"
+# Fork: the upstream loader reads a kernel whole inside the default 256 MiB window. This port carries
+# the kernel as "<kernel>.lzma" inside vendor_boot, so the loader has to decompress it and accept
+# collection-sized images (8f3f523 + 80d1695, on top of upstream 3c75734). The gitlink in this tree has
+# pointed at the fork since then while this entry still named UniXNU@3c75734 -- corrected here so the
+# manifest and the tree agree; the CI failure of run 42617656327 was the same class of disagreement in
+# seven other submodules, inherited from feat/macos.
+repository = "https://github.com/TongHuaQWQ/DarwinBoot.git"
+revision = "80d1695e9b8f8f83d94ecd04b0d702706dd0f0c9"
 path = "drivers/DarwinBoot"
 hardware = ["ARM64 UEFI"]
 os_abi = []
@@ -182,6 +188,26 @@ build_stage = "embedded"
 build = []
 outputs = []
 legacy_name = "NativeNovatekTouch"
+
+[[component]]
+id = "QcomBaseband"
+repository_id = 1443386546
+kind = "driver"
+function = "Qualcomm baseband IOKit bridge, QMUX/QRTR and IPA v4.2"
+scope = "modem"
+repository = "https://github.com/UniXNU/QcomBaseband.git"
+revision = "dd0199cf3300764ed52b23f4a47761f91fab21a2"
+path = "drivers/QcomBaseband"
+hardware = ["Qualcomm QMI over QRTR", "SC7180 IPA v4.2 reference"]
+os_abi = ["ipados-17.7.11-21H461 AppleBaseband IOUserClient"]
+board_dependencies = ["modem power and firmware boot", "GLINK/QRTR transport and rmtfs", "DMA and EFS/NV storage", "cellular ADT and firmware packaging", "raw-IP transport on the QRTR/IPA owner thread"]
+verified_devices = []
+dependencies = []
+source_files = ["baseband/coachz_baseband.cpp", "baseband/QcomBaseband.h", "baseband/coachz_bb_pdp.cpp", "baseband/coachz_bb_pdp.h", "ipa/coachz_ipa_kernel.h", "platform/coachz/coachz_modem.c"]
+runtime_identifiers = ["AppleBaseband", "AppleBasebandPCIControl", "AppleBasebandPCIInterface", "AppleIPAppender", "AppleBasebandPCIMAVPDPManager", "coachz_baseband_configure", "coachz_modem_configure", "coachz_modem_data_send", "coachz_modem_data_receiver", "pdp_ip0", "pdp_ip1", "pdp_ip2", "pdp_ip3"]
+build_stage = "kernel"
+build = ["build-qcom-baseband.py"]
+outputs = ["build/qcom-baseband/libQcomBaseband.a"]
 
 [[component]]
 id = "QcomGeniSpi"

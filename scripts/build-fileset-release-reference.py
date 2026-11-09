@@ -120,7 +120,16 @@ def main():
         f'CFLAGS_EXTRA={flags}',
         'copyio.o_CFLAGS_ADD=-march=armv8.1-a','pcb.o_CFLAGS_ADD=-march=armv8.1-a',
         'LD_KERNEL_ARCHIVES='+' '.join([f'-L{sdk}/usr/local/lib/kernel','-lfirehose_kernel',
-                                        *map(str,archives),*(f'-Wl,-force_load,{p}' for p in forced)]),
+                                        *map(str,archives),*(f'-Wl,-force_load,{p}' for p in forced),
+                                        # This kernel is only ever read: emit_prelink.py compares its code and
+                                        # symbol table against Apple's. Under --lto, XNU links through an
+                                        # intermediate LTO link, and on this profile the forced exports the real
+                                        # kernel satisfies are not all reachable from that link -- the pass below
+                                        # trims the ones the objects cannot provide, and this lets the remainder
+                                        # stay undefined instead of ending in "symbol(s) not found". The 2026-11-09
+                                        # rounds failed here (67 exports trimmed, exit 2 twice) after the device
+                                        # fork's own version of this script had been replaced by this one.
+                                        *(['-Wl,-undefined,dynamic_lookup'] if options.lto else [])]),
         'XNU_EXTERNAL_KERNEL_ARCHIVES='+' '.join(map(str,archives+forced)),
         f'OBJROOT={output}/{mode}-obj',f'SYMROOT={output}/{mode}-sym',f'DSTROOT={output}/{mode}-dst']
     (output/f'{mode}-command.json').write_text(json.dumps(args,indent=2)+'\n')

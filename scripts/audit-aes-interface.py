@@ -32,7 +32,10 @@ def require(value, message):
 
 reference = args.reference.read_bytes()
 ref_sha = hashlib.sha256(reference).hexdigest()
-require(ref_sha == 'c487cb1e607a468e26fcc4da93a02a4d30a129360cd3ca9ca88ef3a51f8c8cd9', 'Unexpected KDK annotation input')
+# 26.5.2 build 25F84: the KDK that matches this board's pinned kernelcache. The previous pin was a
+# different KDK generation, and prelink addresses do not carry across kernelcaches, so the reference
+# has to come from the same build as the candidate it annotates.
+require(ref_sha == '6a0d144059f44835b2185636e7370cf694d875162d7c3e7ca34fb58442a1db48', 'Unexpected KDK annotation input')
 require(struct.unpack_from('<3I', reference) == (0xfeedfacf, 0x100000c, 0xc0000002), 'Expected reference-only ARM64e Mach-O')
 segments, symbols, by_address = [], {}, {}
 at = 32

@@ -374,6 +374,17 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
     mappings += [('TrustCache', bytes(16))] if trust else []
     mappings += [('GpuAddon', bytes(16))] if addon else []
     mappings += [('RootPolicies', bytes(16))] if root_policies else []
+    # mcOS (kept across the upstream merge): the panic log region. XNU's check_for_panic_log() reads
+    # /chosen/pram's `reg` and the length from /chosen/embedded-panic-log-size. A top-level `pram` node
+    # is not looked up at all, which is why the board reported "pram=0 size=0" and no log survived a
+    # reboot. Upstream's own [adt.chosen] child nodes (macOS: asmb, the local boot policy) still ride
+    # in chosen_children, so the pram node is appended to that list rather than replacing it.
+    region = options.get('panic_region')
+    if region:
+        address, _, length = str(region).partition(':')
+        address, length = int(address, 0), int(length, 0)
+        chosen_children.append(node('pram', [('reg', struct.pack('<QQ', address, length))]))
+        chosen.append(('embedded-panic-log-size', struct.pack('<I', length)))
     children = [node('chosen', chosen, [node('memory-map', mappings), node('manifest-properties'), *chosen_children])]
     cpus = next((entry for entry in root.children if entry.name == 'cpus'), None)
     if cpus is None:
@@ -415,6 +426,17 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
     for name in ('defaults', 'options', 'product', 'buttons'):
         if name in platform or name in ('defaults', 'options', 'product'):
             children.append(platform_node(name, platform.get(name, {})))
+    # Any other configured node rides as a top-level node of its own, which is how a board adds the
+    # nodes an OS reads by bare name from the root: "pram" carries the embedded panic log XNU maps and
+    # reads (a board that declares embedded-panic-log-size without it gets a zero-length region and
+    # silently drops every panic), and "gmu-memory" carries a device's GPU payload pool. An empty or
+    # non-table entry is an error rather than a node that quietly disappears.
+    for name, table in platform.items():
+        if name in ('chosen', 'defaults', 'options', 'product', 'buttons', 'root'):
+            continue
+        if not isinstance(table, dict) or not table:
+            raise Error(f'ADT node {name}: expected a table of property types or child nodes')
+        children.append(platform_node(name, table))
     # A configured root 'compatible' goes before the hardware DTS's own entries: an OS identity's board name comes first (the OS
     # reads the first entry as the hardware model) and the board's compatible strings stay matchable after it.
     configured = dict(typed_properties(platform.get('root', {})))

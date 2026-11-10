@@ -44,7 +44,11 @@
 #   __PRELINK_INFO, then the function that calls _initializeAppleMobileFileIntegrity and
 #   returns 0. Leave the line out to prelink without it and see how far the boot gets.
 # "early_security_init" = "com.apple.driver.AppleMobileFileIntegrity=0x..."
-"extra_args" = ["--fileset-reference", "build/xnu/fileset-reference/mach.release.bcm2837.unstripped.noctf", "--allow-missing"]
+# The naming reference is Apple's same-build release kernel written down as digests,
+# lengths and symbol names (kits/XnuPrelink/fixtures/reference-names-25F84-kernel.release.t8142.json.gz),
+# not the locally built comparison kernel: no Apple binary is published, and this reference
+# names the kext-facing ABI and leaves no unresolved closure reference (MEASUREMENT.md §13).
+"extra_args" = ["--fileset-reference", "kits/XnuPrelink/fixtures/reference-names-25F84-kernel.release.t8142.json.gz", "--allow-missing"]
 "roots" = [
     "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
     "com.apple.driver.AppleARMPlatform",

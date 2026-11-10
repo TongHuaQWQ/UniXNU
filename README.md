@@ -21,6 +21,22 @@
 
 > **Migration notice:** Update your device repository for shared SoC support and canonical component names. Follow the [migration guide](https://unixnu.com/porting/migration).
 
+> **This fork** (`TongHuaQWQ/UniXNU`, branch `macos`) is the core side of a macOS 26.5.2 (25F84) port to
+> the Xiaomi Pad 7 (`uke`, SM7675). The device repository — `board.toml`, configuration, patch series,
+> CI workflows, state and history — is [`TongHuaQWQ/macOS-ForUke`](https://github.com/TongHuaQWQ/macOS-ForUke),
+> and that is the place to start reading. What this branch carries on top of `feat/macos`:
+>
+> - the comparison kernel the fileset prelink reads is pinned to the standalone link
+>   (`XNU_KERNEL_CHAINED_FIXUPS=0`); inherited from the defconfig it went down the collection link path,
+>   where `-Wl,-undefined,dynamic_lookup` does not apply, and the prelink failed twice with a trimmed
+>   export list. With it pinned the pairing names 3470/3826 kext-facing targets with 0 stubs;
+> - `/chosen/pram` is the union of both halves rather than the last writer's;
+> - `UniXNUPkg` reads the `gUkeMemStatusGuid` table this firmware publishes;
+> - the bootstrap pass reports the link failure it is expected to hit instead of failing the round;
+> - submodule pins kept consistent with the merged tree.
+>
+> Use it exactly as upstream: `./unixnu <command> -D <device-repository>`.
+
 An independent project to run iOS and macOS on non-Apple ARM64 hardware through UEFI. Like OpenCore, UniXNU is a general UEFI environment and driver loading system: it loads the drivers a device needs and boots the OS through a common UEFI layer.
 
 UniXNU provides shared build tools, ARM64 support, OS profiles and reusable components for ports across SoCs and devices. SoC repositories supply common platform support, and device repositories supply board configuration and hardware integration.

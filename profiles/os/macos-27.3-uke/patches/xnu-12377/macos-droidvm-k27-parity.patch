@@ -197,7 +197,13 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  exit(proc_t p, struct exit_args *uap, int *retval)
  {
 +	/* exit-trace (BootUiTraceProbe.c, the board's): the user frames of a listed process's exit(), with the cache slide. */
-+	extern void native_exit_trace(int pid, const char *name, int status) __attribute__((weak_import));
++	/*
++	 * weak, not weak_import: the kernel is linked statically with no dynamic lookup, so weak_import
++	 * leaves the reference undefined and the link fails (measured: ld: Undefined symbols _native_exit_trace
++	 * from kern_exit.o). weak resolves to 0 when nothing provides it, which is what the guard below
++	 * already assumes.
++	 */
++	extern void native_exit_trace(int pid, const char *name, int status) __attribute__((weak));
 +	if (native_exit_trace) {
 +		native_exit_trace(proc_getpid(p), p->p_comm, (int)uap->rval);
 +	}

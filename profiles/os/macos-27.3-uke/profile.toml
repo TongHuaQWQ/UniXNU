@@ -1,0 +1,108 @@
+# macOS 27.3 OS profile for the uke (Xiaomi Pad 7, SM7675) port: upstream's 26C5035r identity and
+# patch series, with none of the sheng board's configuration baked in.
+#
+# Deliberately thin, like profiles/os/macos-26.5.2-25F84: [os], [ipsw] and [kernel.prelink] only.
+# Upstream's profiles/os/macos-27.3-26C5035r also carries [adt] (root/chosen/product), six [[source]]
+# entries, [userdata], [root] and [payload.adt]. Those are one board's answers, not the OS identity's,
+# and profiles.load() merges this file *before* the device's board.toml, so leaving them here would
+# either be dead weight (the board overrides it) or, on the keys the board does not set, put K114c's
+# identity into uke's ADT. The board is the only place uke's configuration lives.
+["os"]
+"name" = "macos-27.3-uke"
+"arch" = "arm64e"
+# Same kernel as 26.5.2: no Darwin 26 XNU source is published yet, so 26C5035r runs on xnu-12377 with the
+# Darwin 26 system calls and KPIs, the macOS machine options and the macOS target added (patches/xnu/series).
+"darwin" = "25.5.0"
+"xnu_version" = "12377.121.6"
+"xnu_revision" = "ac9718fb1af618d5ce8678d0dc6e8a58f252216f"
+"driverkit_tag" = "xnu-12377.121.6"
+"trustcache_tag" = "xnu-8796.101.5"
+# The kernel serves macOS userspace: XNU_TARGET_OS_OSX (the padded kext vtables and aligned containers of
+# the macOS kexts) on the same iOS-platform kernel, memory layout and link address as iPadOS.
+"target" = "macosx"
+# The deployment version of that iOS-platform kernel, as in upstream's 27.3 profile. This is the one [os]
+# value here that changes what the build does: it becomes -miphoneos-version-min for the kernel
+# (scripts/kernel_target.py, scripts/build-xnu-4k-baseline.sh). "26.5.2" (the 25F84 profile's value) builds
+# the same xnu-12377 source with the older minimum.
+"ios_version" = "27.0"
+"abi" = []
+
+# Upstream's 26C5035r restore image, verbatim. The board's [ipsw] (j704ap / Mac17,2 / 0x8142 / 0x22 of the
+# 25F84 image) is merged over this and wins, so a build of this profile still reads kernelcache.release.mac17g
+# of UniversalMac_26.5.2_25F84_Restore.ipsw. Copying the field set keeps the identity complete for a board
+# that switches image; it does not switch this one.
+["ipsw"]
+"url" = "https://updates.cdn-apple.com/2026FallSeed/53df7654-4865-4259-8dae-30177b76f104/UniversalMac_27.3_26C5035r_Restore.ipsw"
+"product" = "Mac17,11"
+"version" = "27.3"
+"build" = "26C5035r"
+"device_class" = "k114cap"
+"chip_id" = 24656
+"board_id" = 4
+# "Cryptex1,AppTrustCache" is new in 27.3's list; unixnu ipsw fetches exactly this merged list, and this
+# board fetches from the 25F84 image (see above), so whether that component exists there is unverified —
+# check it before the first "unixnu ipsw fetch" (see the profile report in work/analysis/).
+"fetch" = ["KernelCache", "DeviceTree", "StaticTrustCache", "Cryptex1,SystemTrustCache", "Cryptex1,AppTrustCache"]
+
+["kernel"]
+
+["kernel"."prelink"]
+"tool" = "kits/XnuPrelink/emit_prelink.py"
+# Keep the 4 KiB machine configuration: BCM2837 is the layout UniXNU patches XNU into, whatever the OS is
+# (docs/xnu/four-k-page-tables.md).
+"kernel" = "build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/mach.development.bcm2837.unstripped.noctf"
+# No kernelcache_sha256 here, on purpose. Upstream's value (d1003b51…) is kernelcache.release.mac17j of
+# 26C5035r — a 0x6050 board's cache, not this port's. The pin that must hold is the one the board declares
+# for the cache it actually reads: board.toml [kernel.prelink] kernelcache_sha256, kernelcache.release.mac17g
+# of the 25F84 image (697e01d6…, measured). kernel.prelink() only checks the digest when this key is present,
+# and the board's table is merged over this one, so the profile stays silent and one file owns the pin.
+# A digest for a 27.3 mac17g cache can only come from fetching that image's KernelCache entry:
+#   python3 scripts/unixnu/cli.py ipsw fetch -D ../macOS-ForUke --ipsw <26C5035r.ipsw> KernelCache
+# (it would still be mac17g's, i.e. j704ap/Mac17,2/0x8142/0x22, which the 27.3 manifest need not carry).
+"slide" = "-0x1000000"
+# No early_security_init. Upstream's 27.3 value (0xfffffe0009840dd4) is mac17j's AMFI policy wrapper; the
+# 25F84 profile's is unknown and the board has none, because a prelink-ABI address does not carry across
+# kernelcaches and "AMFI: No PMGR?" is what an early AMFI on a Snapdragon gives (docs/devices/nx769j.md).
+# "early_security_init" = "com.apple.driver.AppleMobileFileIntegrity=0x..."
+# The naming reference is our fork's shipped table (kits/XnuPrelink/fixtures/reference-names-25F84-kernel.release.t8142.json.gz,
+# a digest/length/symbol table of Apple's same-build release kernel), not the locally built comparison kernel
+# and not a built file: MEASUREMENT.md §13 and commit 1ec720e of this fork. The table matches by function-byte
+# digest, so it applies to any build of the same XNU source — 26C5035r is xnu-12377.121.6 like 25F84 — and
+# every name it cannot place is left unresolved instead of guessed (that is what --allow-missing is for).
+"extra_args" = ["--fileset-reference", "kits/XnuPrelink/fixtures/reference-names-25F84-kernel.release.t8142.json.gz", "--allow-missing"]
+# The fileset roots this port selected in the 25F84 round, unchanged: same kernel, same kext collection.
+# board.toml [kernel.prelink] roots is merged over this list and is what the build uses; the two are kept
+# identical so the profile is self-consistent if the board key ever goes away.
+"roots" = [
+    "com.apple.AppleFSCompression.AppleFSCompressionTypeZlib",
+    "com.apple.driver.AppleARMPlatform",
+    "com.apple.driver.AppleARMWatchdogTimer",
+    "com.apple.driver.AppleAudioClockLibs",
+    "com.apple.driver.AppleEffaceableStorage",
+    "com.apple.driver.AppleIISController",
+    "com.apple.driver.AppleM2ScalerCSCDriver",
+    "com.apple.driver.AppleMobileFileIntegrity",
+    "com.apple.driver.ApplePMGR",
+    "com.apple.driver.IODARTFamily",
+    "com.apple.filesystems.apfs",
+    "com.apple.iokit.CoreAnalyticsFamily",
+    "com.apple.iokit.IOAVFamily",
+    "com.apple.iokit.IOAudio2Family",
+    "com.apple.iokit.IOCECFamily",
+    "com.apple.iokit.IOCryptoAcceleratorFamily",
+    "com.apple.iokit.IOGPUFamily",
+    "com.apple.iokit.IOHDCPFamily",
+    "com.apple.iokit.IOMobileGraphicsFamily",
+    "com.apple.iokit.IOReportFamily",
+    "com.apple.iokit.IOSlowAdaptiveClockingFamily",
+    "com.apple.iokit.IOStorageFamily",
+    "com.apple.iokit.IOSurface",
+    "com.apple.kec.Libm",
+    "com.apple.kec.corecrypto",
+    "com.apple.kext.AppleMatch",
+    "com.apple.kext.CoreTrust",
+    "com.apple.security.AppleImage4",
+    "com.apple.security.sandbox",
+    "com.apple.iokit.IOHIDFamily",
+    "com.apple.iokit.IOHIDEventDriver",
+]

@@ -25,6 +25,12 @@ Run on hardware: 117264 pages (458 MiB) adopted on sheng, the rest of the listed
 With the addresses below the static region: two runs of 243 s and 461 s without a failed kernel allocation; with them
 behind the aperture a run failed one within 150 s.
 
+The refused load is stepped over with add_saved_state_pc(), the inline that osfmk/mach/arm/thread_status.h declares
+only for CONFIG_DTRACE, CONFIG_XNUPOST and debug kernels. A RELEASE build of this profile therefore failed compiling
+osfmk/arm64/sleh.c with "call to undeclared function 'add_saved_state_pc'" (the fileset reference, which is RELEASE,
+is the configuration that noticed). The last section below declares the inline for every configuration, in the header
+XNU declares it in; the seven sections before it are unchanged from the copy this profile took from upstream.
+
 diff --color -ruN a/osfmk/arm/pmap/pmap.c b/osfmk/arm/pmap/pmap.c
 --- a/osfmk/arm/pmap/pmap.c	2026-11-11 06:35:53
 +++ b/osfmk/arm/pmap/pmap.c	2026-11-11 13:50:42
@@ -619,3 +625,23 @@ diff --color -ruN a/osfmk/vm/pmap.h b/osfmk/vm/pmap.h
  
  #if HAS_MTE
  extern bool pmap_is_tagged_page(ppnum_t);
+
+diff --color -ruN a/osfmk/mach/arm/thread_status.h b/osfmk/mach/arm/thread_status.h
+--- a/osfmk/mach/arm/thread_status.h	2026-11-11 19:40:00.000000000 +0800
++++ b/osfmk/mach/arm/thread_status.h	2026-11-11 19:40:00.000000000 +0800
+@@ -341,9 +341,13 @@
+ #define HAS_SET_SAVED_STATE_CPSR        1
+ #endif /* CONFIG_DTRACE */
+ 
+-#if DEBUG || DEVELOPMENT
++/*
++ * The PC stepper every configuration needs, not only the ones that take DTrace, XNUPOST or a debug
++ * kernel: arm64_platform_error() steps over a load the memory probe refused (osfmk/arm64/sleh.c,
++ * window-outside-memory-adoption), and the RELEASE fileset reference of this profile failed with
++ * "call to undeclared function 'add_saved_state_pc'" because only the debug configurations declared it.
++ */
+ #define HAS_ADD_SAVED_STATE_PC          1
+-#endif
+ 
+ 
+ static inline boolean_t

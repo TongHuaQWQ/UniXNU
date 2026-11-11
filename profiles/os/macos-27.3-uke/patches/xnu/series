@@ -9,7 +9,13 @@
 # patches.py:plan() rejects a patch that appears twice in the selected series.
 # No Darwin 26 XNU source is published yet; 26C5035r runs on xnu-12377 with the Darwin 26 system
 # calls and KPIs, the macOS machine options and the macOS kernel state added.
-arch:../../../patches/xnu-12377/zzz-boot-progress.patch
+# zzz-boot-progress.patch is dropped from this profile: it is the one patch of upstream's 27.3
+# series that collides with this board's series, at bsd/kern/bsd_init.c:778, against
+# offline-component-load-probes.patch which the arch layer already applies. It paints Apple's
+# boot progress bar, and this board has its own progress path (libBootProgress plus
+# zzzzz-video-console-*), so upstream's is the one to give up. Restoring it means regenerating
+# its bsd_init.c hunk against the patched tree.
+# arch:../../../patches/xnu-12377/zzz-boot-progress.patch
 arch:../../../patches/xnu-12377/darwin26-syscalls.patch
 arch:../../../patches/xnu-12377/darwin26-kpi.patch
 arch:../../../patches/xnu-12377/darwin26-shared-region.patch

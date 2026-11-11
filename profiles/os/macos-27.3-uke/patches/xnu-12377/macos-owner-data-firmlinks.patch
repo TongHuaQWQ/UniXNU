@@ -10,10 +10,10 @@ volume's own group. The owner Data volume is on another device:
 - lookup follows a firmlink source directory on a name cache miss as cache_lookup_path does on a hit.
 Requires offline-owner-systemos-mount.patch, zzy-native-gpu-addon-mount.patch and zzyb-native-cryptex-os-view.patch.
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index 20cda24..095a12b 100644
+index e9c7160..2bf57a6 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -8975,6 +8975,210 @@ done:
+@@ -8972,6 +8972,210 @@ done:
  }
  #endif
  
@@ -224,19 +224,19 @@ index 20cda24..095a12b 100644
  static int
  load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path, user_addr_t envp)
  {
-@@ -9126,7 +9330,12 @@ load_init_program(proc_t p)
+@@ -9119,7 +9323,12 @@ load_init_program(proc_t p)
+ 	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
  #endif
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
- 	boot_progress_stage("Data mount enter");
 +#if defined(XNU_TARGET_OS_OSX) && XNU_TARGET_OS_OSX
 +	(void)native_owner_data_prepare;
 +	int data_error = native_owner_macos_data_prepare(p, (user_addr_t)scratch_addr);
 +#else
  	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
 +#endif
- 	boot_progress_stage("Data mount returned");
  	if (data_error) panic("offline scratch Data mount failed: %d", data_error);
- #if defined(XNU_BOOT_PROGRESS) && XNU_BOOT_PROGRESS
+ #endif
+ #if CONFIG_MEMORYSTATUS
 diff --git a/bsd/vfs/vfs_lookup.c b/bsd/vfs/vfs_lookup.c
 index b8cf563..9ab1385 100644
 --- a/bsd/vfs/vfs_lookup.c

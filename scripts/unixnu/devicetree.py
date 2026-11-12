@@ -374,18 +374,34 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
     mappings += [('TrustCache', bytes(16))] if trust else []
     mappings += [('GpuAddon', bytes(16))] if addon else []
     mappings += [('RootPolicies', bytes(16))] if root_policies else []
-    # mcOS (kept across the upstream merge): the panic log region. XNU's check_for_panic_log() reads
-    # /chosen/pram's `reg` and the length from /chosen/embedded-panic-log-size. A top-level `pram` node
-    # is not looked up at all, which is why the board reported "pram=0 size=0" and no log survived a
-    # reboot. Upstream's own [adt.chosen] child nodes (macOS: asmb, the local boot policy) still ride
-    # in chosen_children, so the pram node is appended to that list rather than replacing it.
+    # mcOS (kept across the upstream merge): the panic log region, described by one number pair in the
+    # board ([payload.adt] panic_region). XNU's check_for_panic_log() (pexpert/arm/pe_init.c) needs
+    # exactly two things from the device tree, and both of them have been got wrong here:
+    #   * it resolves the region with SecureDTLookupEntry(0, "pram", &entry), which starts at the ROOT
+    #     node and only ever walks that node's direct children (SecureDTLookupEntry -> FindChild in
+    #     pexpert/gen/device_tree.c iterates cur->nChildren and nothing else). A `pram` node nested
+    #     under /chosen is therefore never found: gPanicBase stays 0, debug_log_init() finds no buffer,
+    #     and every panic is dropped. That is what the panel's "PREVIOUS XNU LOG (pram=0 size=0)" says.
+    #   * it takes `reg` from that node but the LENGTH from /chosen/embedded-panic-log-size, and maps
+    #     reg[0] for exactly that many bytes with ml_io_map_wcomb(). Two facts that must agree, so this
+    #     generator emits both from panic_region and refuses a board that declares its own size: with
+    #     native-dt-panic-region.patch's validation a size larger than reg[1] makes the kernel bail out
+    #     silently, and without it the kernel would map (and bzero) past the end of the region.
     region = options.get('panic_region')
+    panic_nodes = []
     if region:
         address, _, length = str(region).partition(':')
         address, length = int(address, 0), int(length, 0)
-        chosen_children.append(node('pram', [('reg', struct.pack('<QQ', address, length))]))
+        if address % 0x1000 or length % 0x1000 or length <= 0:
+            raise Error(f'panic_region {region} is not whole 4 KiB pages')
+        if 'embedded-panic-log-size' in chosen_table.get('u32', {}):
+            raise Error('panic_region already writes /chosen/embedded-panic-log-size: delete the '
+                        '[adt.chosen.u32] entry, because the kernel reads the FIRST property of that '
+                        f'name and would take a size that disagrees with {region}')
         chosen.append(('embedded-panic-log-size', struct.pack('<I', length)))
-    children = [node('chosen', chosen, [node('memory-map', mappings), node('manifest-properties'), *chosen_children])]
+        panic_nodes.append(node('pram', [('reg', struct.pack('<QQ', address, length))]))
+    children = [node('chosen', chosen, [node('memory-map', mappings), node('manifest-properties'), *chosen_children]),
+                *panic_nodes]
     cpus = next((entry for entry in root.children if entry.name == 'cpus'), None)
     if cpus is None:
         raise Error('Hardware DTS requires /cpus')
@@ -427,13 +443,17 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
         if name in platform or name in ('defaults', 'options', 'product'):
             children.append(platform_node(name, platform.get(name, {})))
     # Any other configured node rides as a top-level node of its own, which is how a board adds the
-    # nodes an OS reads by bare name from the root: "pram" carries the embedded panic log XNU maps and
-    # reads (a board that declares embedded-panic-log-size without it gets a zero-length region and
-    # silently drops every panic), and "gmu-memory" carries a device's GPU payload pool. An empty or
-    # non-table entry is an error rather than a node that quietly disappears.
+    # nodes an OS reads by bare name from the root: "gmu-memory" carries a device's GPU payload pool, and
+    # the panic log's "pram" node is written above from panic_region, which is why a second one here is
+    # refused (SecureDTLookupEntry returns the FIRST child with that name, so the two would disagree
+    # about where the kernel writes). An empty or non-table entry is an error rather than a node that
+    # quietly disappears.
     for name, table in platform.items():
         if name in ('chosen', 'defaults', 'options', 'product', 'buttons', 'root'):
             continue
+        if name == 'pram':
+            raise Error('the panic log region comes from [payload.adt] panic_region, which already writes '
+                        'the top-level pram node; drop [adt.pram]')
         if not isinstance(table, dict) or not table:
             raise Error(f'ADT node {name}: expected a table of property types or child nodes')
         children.append(platform_node(name, table))

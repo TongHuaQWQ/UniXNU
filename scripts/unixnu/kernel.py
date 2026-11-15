@@ -70,6 +70,13 @@ def version_env(modules, ctx=None):
             env['UNIXNU_ROOT_SYSTEMOS_UUID'] = root['systemos_volume_uuid']
         if root.get('app_volume_uuid'):
             env['UNIXNU_ROOT_APP_UUID'] = root['app_volume_uuid']
+        # Where the root policies' block hash tables travel. A board whose table is larger than its whole
+        # boot image cannot carry it in the kernel bundle, so the storage builder ships only the 544-byte
+        # signed header there and NativeUfs reads the table from the root image instead, as the
+        # "<window>.vroot" data object that [userdata] objects must then place. 26C5035r on uke is such a
+        # board: the OS table alone is 108 MiB against a 96 MiB vendor_boot.
+        if root.get('tables_in_userdata'):
+            env['XNU_SOURCE_STORAGE_TABLES'] = 'userdata'
         env['UNIXNU_IPSW_BUILD'] = ctx.board.get('ipsw', {}).get('build', '')
         env['UNIXNU_XNU_ARCH'] = load_toml(ctx.profile_roots['arch'] / 'profile.toml').get('arch', {}).get('name', 'arm64')
     return env

@@ -7,7 +7,7 @@ It holds the unchanged OS and SystemOS disk images of the IPSW, byte for byte, b
     0x100000  window "OS"        the whole attached OS disk image, 1 MiB aligned
     ....      window "SystemOS"  the whole attached SystemOS disk image, 1 MiB aligned
 
-    ....      data objects (--object NAME=FILE[:OFFSET]), each 1 MiB aligned
+    ....      data objects ([userdata] objects, --object NAME=FILE[:OFFSET]), each 1 MiB aligned
 
 Manifest (little endian): "SHNGROOT", u32 version, u32 count, u64 image_bytes, then `count` 128-byte entries
 {char name[32], u64 offset, u64 size, u32 block_size, u32 flags, u8 sha256[32], 40 reserved},
@@ -16,6 +16,7 @@ Version 2 adds data objects with block_size 4096 and flags 3: the kernel reads t
 them as block devices (the hash tables of header-only root policies, firmware). Version 1 holds windows only.
 
 The OS profile lists the windows ([userdata] windows; optional ones are skipped when the IPSW lacks them) and the
+board lists the data objects ([userdata] objects; paths may start with {tree} for the UniXNU checkout). The
 device sets the partition geometry. The images come from the IPSW (a local file or a remote URL, see ipsw.py),
 are decrypted when the IPSW ships them as AEA, and are checked against the pins of board.toml. The raw disk of each disk image is read without mounting: attached read-only with hdiutil on macOS,
 decoded by udif.py on other hosts. Nothing is flashed: the report prints the fastboot command, to be run by the user.
@@ -41,6 +42,51 @@ CHUNK = 8 * MIB
 def paths(ctx):
     out = ctx.work / 'userdata'
     return out, out / 'userdata-root.img', out / 'userdata-root.json'
+
+
+def _object_path(ctx, text):
+    """A data object's file. `{tree}` names the UniXNU checkout, as it does in a defconfig value."""
+    if not text:
+        return Path('')
+    return Path(str(text).replace('{tree}', str(ctx.tree))).expanduser()
+
+
+def collect_objects(ctx, spec, cursor, cli_objects):
+    """The data objects of the root manifest, in placement order.
+
+    `[userdata] objects` in board.toml declares them, so a checkout reproduces the image with no
+    command-line state: each entry is a table { name = "...", path = "{tree}/...", offset = 0 }. The
+    offset is optional and names bytes to skip at the front of the file. `--object NAME=FILE[:OFFSET]`
+    stays as the one-off escape hatch. Returns (name, offset, size, path, skip) entries and the cursor
+    after them, each object 1 MiB aligned.
+    """
+    objects = []
+
+    def add(name, file_text, offset_text, origin):
+        nonlocal cursor
+        path = _object_path(ctx, file_text)
+        if not name or len(str(name).encode()) > 31 or not path.is_file():
+            raise Error(f'{origin}: expected a name under 32 bytes and an existing file, got {name}={path}')
+        skip = int(str(offset_text), 0) if offset_text not in (None, '') else 0
+        size = path.stat().st_size - skip
+        if skip < 0 or size <= 0:
+            raise Error(f'{origin}: offset outside {path}')
+        if any(existing[0] == str(name) for existing in objects):
+            raise Error(f'{origin}: object {name} is declared twice')
+        objects.append((str(name), cursor, size, path, skip))
+        cursor += (size + MIB - 1) // MIB * MIB
+
+    for entry in spec.get('objects', []):
+        if not isinstance(entry, dict):
+            raise Error('[userdata] objects entries must be tables with name and path')
+        add(entry.get('name'), entry.get('path'), entry.get('offset'), '[userdata] objects')
+    for spec_text in cli_objects:
+        name, sep, rest = spec_text.partition('=')
+        if not sep:
+            raise Error(f'--object {spec_text}: expected NAME=FILE[:OFFSET]')
+        file_text, _, skip_text = rest.partition(':')
+        add(name, file_text, skip_text, f'--object {spec_text}')
+    return objects, cursor
 
 
 def image_size(dmg):
@@ -107,6 +153,10 @@ def build(ctx, dry_run=False):
         for window in windows:
             name, size, _ = source.info(window['component'])
             log(f'userdata: {window["name"]} would be extracted from {name} ({size >> 20} MiB)')
+        for entry in spec.get('objects', []):
+            path = _object_path(ctx, entry.get('path'))
+            log(f'userdata: object {entry.get("name")} would be added from {path} '
+                f'({"present" if path.is_file() else "MISSING"})')
         log('userdata: dry run, nothing extracted or written')
         return None
     sources = [(window['name'], source.disk_image(window['component'])) for window in windows]
@@ -115,19 +165,14 @@ def build(ctx, dry_run=False):
         size = image_size(dmg)
         layout.append((name, cursor, size))
         cursor += (size + MIB - 1) // MIB * MIB
-    objects = []
-    for spec_text in getattr(ctx.args, 'object', None) or []:
-        name, sep, rest = spec_text.partition('=')
-        file_text, _, skip_text = rest.partition(':')
-        path = Path(file_text).expanduser()
-        if not sep or not name or len(name.encode()) > 31 or not path.is_file():
-            raise Error(f'--object {spec_text}: expected NAME=FILE[:OFFSET] with an existing file and a name under 32 bytes')
-        skip = int(skip_text, 0) if skip_text else 0
-        size = path.stat().st_size - skip
-        if skip < 0 or size <= 0:
-            raise Error(f'--object {spec_text}: offset outside the file')
-        objects.append((name, cursor, size, path, skip))
-        cursor += (size + MIB - 1) // MIB * MIB
+    #
+    # Data objects (block_size 4096, flags 3): the kernel reads them itself and never publishes them as
+    # block devices. Two things travel this way. Firmware blobs. And the block hash tables of header-only
+    # root policies, which is the only way a root policy fits on a board whose signed table is larger than
+    # its whole boot image: with XNU_SOURCE_STORAGE_TABLES=userdata the storage builder puts just the
+    # 544-byte signed header into the kernel bundle, and NativeUfs reads "<window>.vroot" (this object)
+    # from the root image and checks it against that header (build-sheng-source-storage.py).
+    objects, cursor = collect_objects(ctx, spec, cursor, getattr(ctx.args, 'object', None) or [])
     if len(layout) + len(objects) > 8 or len(layout) > 4 or len(objects) > 4:
         raise Error('the root manifest holds at most 4 windows and 4 data objects')
     total = cursor

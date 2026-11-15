@@ -35,6 +35,23 @@ struct shngroot_header {
 
 镜像按字节从 IPSW 磁盘镜像复制。userdata 步骤读取每个磁盘镜像的原始磁盘：macOS 上用 `hdiutil` 只读挂载并读取原始设备，Linux 上由 `scripts/unixnu/udif.py` 解码 UDIF 块。OS 镜像是含 LZFSE 块的 UDIF 镜像；SystemOS cryptex 是原始镜像，按原样复制。
 
+## 数据对象
+
+窗口是块设备。有些输入不是：内核自己读取它们，从不作为块设备发布。这类是数据对象，即 manifest 版本 2 的条目，`block_size 4096`、`flags 3`，按 1 MiB 对齐排在窗口之后。
+
+由设备仓声明，因此检出后不带命令行状态也能复现镜像：
+
+```toml
+[userdata]
+objects = [
+  { name = "OS.vroot", path = "{tree}/scripts/policies/26C5035r/OS/hashes.bin" },
+]
+```
+
+`{tree}` 是构建树，与 defconfig 取值相同。`offset` 可选，表示跳过文件开头若干字节。单次运行可用 `unixnu userdata --object NAME=FILE[:OFFSET]` 追加。一个 manifest 最多 4 个窗口和 4 个数据对象，名字最长 31 字节。
+
+主要用途是仅含头部的根策略的块哈希表。签名表放不进启动镜像的板子会设置 `[root] tables_in_userdata`，该键以 `XNU_SOURCE_STORAGE_TABLES=userdata` 传到内核步骤：存储构建器随后只把每份策略的 544 字节签名头放进内核包，驱动从本镜像读取 `<window>.vroot` 并对照该头部校验。`scripts/make-root-policies.py` 把表留在 `TREE/build/verified-root-NAME/hashes.bin`，把头、anchor 与校验记录留在策略目录。
+
 ## 容量
 
 ```

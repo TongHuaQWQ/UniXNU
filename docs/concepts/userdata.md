@@ -35,6 +35,23 @@ The header occupies 4096 bytes and is zero padded to 1 MiB. The first window sta
 
 The images are copied byte for byte from the disk images in the IPSW. The userdata step reads the raw disk of each disk image: on macOS it attaches the image read-only with `hdiutil` and reads the raw device, on Linux `scripts/unixnu/udif.py` decodes the UDIF chunks. The OS image is a UDIF image with LZFSE chunks; the SystemOS cryptex is a raw image and is copied as it is.
 
+## Data objects
+
+Windows are block devices. Some inputs are not: the kernel reads them itself and never publishes them. Those are data objects, manifest version 2 entries with `block_size 4096` and `flags 3`, placed 1 MiB aligned after the windows.
+
+The board declares them, so a checkout reproduces the image with no command-line state:
+
+```toml
+[userdata]
+objects = [
+  { name = "OS.vroot", path = "{tree}/scripts/policies/26C5035r/OS/hashes.bin" },
+]
+```
+
+`{tree}` is the build tree, as in a defconfig value. `offset` is optional and names bytes to skip at the front of the file. `unixnu userdata --object NAME=FILE[:OFFSET]` adds one for a single run. A manifest holds at most 4 windows and 4 data objects, and a name is at most 31 bytes.
+
+The main use is the block hash table of a header-only root policy. A board whose signed table does not fit its boot image sets `[root] tables_in_userdata`, which reaches the kernel step as `XNU_SOURCE_STORAGE_TABLES=userdata`: the storage builder then puts only the 544-byte signed header of each policy into the kernel bundle, and the driver reads `<window>.vroot` from this image and checks it against that header. `scripts/make-root-policies.py` leaves the table in `TREE/build/verified-root-NAME/hashes.bin` and the header, anchor and verification record in the policy directory.
+
 ## Capacity
 
 The partition capacity is:

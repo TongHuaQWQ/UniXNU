@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -85,13 +86,42 @@ def main():
             parser.error(f'no policy directory for {build_id}: pass --policy-dir or ship scripts/policies/*{build_id}')
         policies = shipped[0]
     policies = policies.resolve()
-    # The resolved build tree links the device package as kits/sheng, while an
-    # explicit device repository keeps package/ and drivers/ side by side.
+    # A header-only policy directory ships manifest.header.bin in place of the full manifest: with
+    # XNU_SOURCE_STORAGE_TABLES=userdata the 108 MiB block tables travel in the root image as
+    # "<window>.vroot" objects, so manifest.bin is not an input of this build at all (the branch below
+    # reads the header, checks it against the image digest and puts just those 544 bytes in the bundle).
+    # A CI checkout of uke has no signed manifest.bin and never will: the OS one alone is 113 MB.
+    header_only = os.environ.get('XNU_SOURCE_STORAGE_TABLES', '') == 'userdata'
+    required_policy_files = [
+        policies / name / filename
+        for name in ('OS', 'SystemOS')
+        for filename in (('manifest.header.bin' if header_only else 'manifest.bin'),
+                         'trusted-key.bin', 'verification.json')
+    ]
+    missing_policy_files = [str(path) for path in required_policy_files if not path.is_file()]
+    if missing_policy_files:
+        parser.error('incomplete signed root-policy inputs: ' + ', '.join(missing_policy_files) +
+                     '; restore the original verified OS/SystemOS policies with their existing owner anchor '
+                     'under device scripts/policies/<profile>/, or pass --policy-dir')
+    # The resolved build tree links the device package as kits/<board.kit>, while an
+    # explicit device repository keeps package/ and drivers/ side by side. The assembled tree has no
+    # board.toml: find the linked kit by the runtime sources it must contain instead of assuming sheng.
+    kit = None
+    try:
+        kit = tomllib.loads((device / 'board.toml').read_text()).get('board', {}).get('kit')
+    except (FileNotFoundError, tomllib.TOMLDecodeError):
+        pass
+    if kit is None:
+        matches = sorted(path.name for path in (device / 'kits').glob('*')
+                         if (path / 'SourceStorage.cpp').is_file())
+        if len(matches) != 1:
+            parser.error(f'cannot identify the device package under {device / "kits"}: {matches}')
+        kit = matches[0]
     package_dirs = [device / 'package']
     if device != tree:
-        package_dirs += [device / 'kits/sheng', tree / 'kits/sheng']
+        package_dirs += [device / f'kits/{kit}', tree / f'kits/{kit}']
     else:
-        package_dirs += [tree / 'kits/sheng']
+        package_dirs += [tree / f'kits/{kit}']
 
     def device_source(relative, *extra):
         for directory in list(extra) + package_dirs + [device, tree]:
@@ -99,6 +129,12 @@ def main():
             if candidate.is_file():
                 return candidate
         parser.error(f'{relative} not found under the device or build tree')
+    def optional_source(relative):
+        for directory in package_dirs + [device, tree]:
+            candidate = directory / relative
+            if candidate.is_file():
+                return candidate
+        return None
     if os.environ.get('UNIXNU_XNU_ARCH', 'arm64e') != 'arm64e':
         parser.error('This adapter requires an arm64e iPadOS profile')
     os.environ['UNIXNU_XNU_ARCH'] = 'arm64e'
@@ -110,15 +146,15 @@ def main():
     out = tree / 'build/sheng-source-storage'
     out.mkdir(parents=True, exist_ok=True)
     header_report = headers.prepare(storage, '7edb88fbae296fb7c8ce2f64e115e116e566d51c', out / 'headers')
-    # A bring-up image can carry one policy: the boot image must stay under the
-    # 192 MiB fastboot limit, and the second table does not fit yet.
-    tables_in_userdata = os.environ.get('XNU_SOURCE_STORAGE_TABLES', '') == 'userdata'
-    # The App window (the application cryptex of macOS) has a policy when its policy directory ships one.
+    # The runtime requires OS and SystemOS. Header-only bundles keep both
+    # policies small; their complete tables can live in userdata objects.
+    tables_in_userdata = header_only
+    # The App cryptex policy is optional for macOS. The two root policies are required.
     default_policies = 'OS,SystemOS,App' if (policies / 'App').is_dir() else 'OS,SystemOS'
     selected = [name.strip() for name in (os.environ.get('UNIXNU_SOURCE_STORAGE_POLICIES') or os.environ.get('XNU_SOURCE_STORAGE_POLICIES', default_policies)).split(',')
                 if name.strip() in ('OS', 'SystemOS', 'App')]
-    if not selected:
-        parser.error('UNIXNU_SOURCE_STORAGE_POLICIES names no policy')
+    if not {'OS', 'SystemOS'} <= set(selected) or len(selected) != len(set(selected)):
+        parser.error('ShengUfs root publication requires exactly one OS and SystemOS policy; use header-only tables in userdata when payload space is limited')
     manifest_paths = [policies / name / 'manifest.bin' for name in selected]
     key = (policies / f'{selected[0]}/trusted-key.bin').read_bytes()
     if len(key) != 395 or any(key != (policies / f'{name}/trusted-key.bin').read_bytes() for name in selected):
@@ -162,7 +198,18 @@ def main():
     # Only the independent trust anchor is linked into the kernel. The large
     # signed hash tables are a separate firmware handoff, authenticated in XNU.
     boot_log_defaults = out / 'BootLogDefaults.c'
-    boot_log_defaults.write_text(weak_defaults(device_source('BootLog.c')))
+    boot_log = optional_source('BootLog.c')
+    # Uke's recovery reader consumes UKELLOG1 records from its existing writer.
+    # Prefer a board's BootLog when present; never run two writers on one window.
+    uke_log = optional_source('UkeLastLog.c') if boot_log is None else None
+    if boot_log is not None:
+        boot_log_defaults.write_text(weak_defaults(boot_log))
+    else:
+        # bsd_init may wait for the first writer round. UkeLastLog increments
+        # this counter after a successful disk record; otherwise it stays zero.
+        boot_log_defaults.write_text(
+            '#include <stdint.h>\n'
+            'volatile uint32_t boot_log_rounds;\n')
     anchor = out / 'RootAnchor.c'
     anchor.write_text('#include <stdint.h>\nconst uint8_t verified_root_key[395] = {' +
                       ','.join(str(b) for b in key) + '};\n')
@@ -184,11 +231,14 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     c = json.loads((obj / 'osfmk/DEVELOPMENT/startup.o.json').read_text().strip().rstrip(','))
     # BSD sources (sys/proc.h, the system calls) take kern_exec's flags.
     bsd = json.loads((obj / 'bsd/DEVELOPMENT/kern_exec.o.json').read_text().strip().rstrip(','))
-    bsd_sources = {'BootWatchdogPolicy.c', 'BootDiagExport.c', 'WifiFirmware.c', 'BluetoothFirmware.c'}
+    bsd_sources = {'BootWatchdogPolicy.c', 'BootDiagExport.c', 'CrashLogProbe.c', 'WifiFirmware.c', 'BluetoothFirmware.c'}
     includes = ['-I', str(out / 'headers/include'), '-I', str(ROOT / 'kits/VerifiedRoot/include'),
                 '-I', str(ROOT / 'drivers/VirtioMmioBlock'), '-I', str(tree / '.cache/xnu-work/osfmk')]
     flags = ['-DNATIVE_UFS_SOURCE_API=1', '-DNATIVE_VERIFIED_BLOCK=1',
              '-DNATIVE_VERIFIED_BLOCK_MULTI_POLICY=1', '-DNATIVE_VERIFIED_POLICY_HANDOFF=1']
+    if uke_log is not None:
+        flags.append('-DUKE_SOURCE_STORAGE_LOG=1')
+
     if os.environ.get('UNIXNU_XNU_TARGET') == 'macosx':
         # The kernel keeps the iOS target triple, so TargetConditionals gives TARGET_OS_OSX 0. The macOS
         # IOStorageFamily has the TARGET_OS_OSX members (doLockUnlockMedia, reportLockability,
@@ -201,25 +251,34 @@ OSDefineOperatorMethods(IOBlockStorageDevice)
     # The RAM disk carries the Data seed; like NativeUfs its class registers with the source storage classes.
     sources = [base, device / 'drivers/ShengUfs/NativeUfs.cpp', ROOT / 'drivers/RamBlock/NativeRamBlock.cpp',
                device_source('SourceStorage.cpp'), device_source('SourceRootPolicies.cpp'),
-               device_source('SourceRootBinding.cpp'), device_source('BootLog.c'), boot_log_defaults, device_source('BootReset.c'),
+               device_source('SourceRootBinding.cpp'), boot_log_defaults,
+               *[source for source in (boot_log, optional_source('BootReset.c')) if source is not None],
                ROOT / 'kits/VerifiedRoot/src/verified_root.c',
                ROOT / 'kits/VerifiedRoot/adapters/xnu_crypto.c', anchor]
+    if uke_log is not None:
+        sources += [uke_log, device_source('CrashLogProbe.c')]
     if int(os.environ['UNIXNU_IOS_VERSION'].split('.')[0]) >= 27:
         # The source path does not run BootProgress's process worker. Reuse its
         # native capture code in a separate worker owned by the UFS log.
         flags.append('-DNATIVE_BOOT_PROCESS_CAPTURE=1')
-        sources += [device_source(name) for name in
-                    ('BootProcessProbe.c', 'BootUiTraceProbe.c', 'BootProcessWorker.c')]
-        # The launchd job policy (disable-watchdogd, lite, disable-jobs, setup) that BootProgress carries on
+        # Uke's display archive owns both probes. Other boards compile the available probes here.
+        probes = ('BootProcessWorker.c',) if uke_log is not None else ('BootProcessProbe.c', 'BootUiTraceProbe.c', 'BootProcessWorker.c')
+        sources += [source for source in
+                    (optional_source(name) for name in probes)
+                    if source is not None]
+        # The launchd job policy (sheng-disable-watchdogd, sheng-lite, sheng-disable-jobs, sheng-setup) that BootProgress carries on
         # iPadOS 17; the kernel runs it after the Data mount.
-        sources.append(device_source('BootWatchdogPolicy.c'))
-        # The diagnostic file export (diag-export): the unified log, crash reports and a screenshot, read through the VFS.
-        sources.append(device_source('BootDiagExport.c'))
-        sources.append(device_source('WifiFirmware.c'))
-        sources.append(device_source('BluetoothFirmware.c'))
-    latency = next((directory / 'BootLatencyTrace.c' for directory in package_dirs
-                    if (directory / 'BootLatencyTrace.c').is_file()), None)
-    if latency:
+        policy = optional_source('BootWatchdogPolicy.c')
+        if policy is not None:
+            sources.append(policy)
+        # The diagnostic file export (sheng-diag-export): the unified log, crash reports and a screenshot, read through the VFS.
+        for name in ('BootDiagExport.c', 'WifiFirmware.c', 'BluetoothFirmware.c'):
+            export = optional_source(name)
+            if export is not None:
+                sources.append(export)
+    # Uke's legacy-display archive already owns this shared trace implementation.
+    latency = optional_source('BootLatencyTrace.c') if uke_log is None else None
+    if latency is not None:
         sources.append(latency)
     objects, inputs = [], {}
     objcopy = shutil.which('llvm-objcopy') or '/opt/homebrew/opt/llvm/bin/llvm-objcopy'
